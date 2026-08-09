@@ -21,12 +21,13 @@ const defaultData = {
   accounts: [],
   alarms: [],
   worldClocks: [],
-  counters: [],
+  timerPresets: [],
   trackingEnabled: false,
   settings: {
-    trackingIntervalMin: 1,
+    trackingIntervalSec: 60,
     dailySummaryTime: null,
     dailySummaryNotifiedDate: null,
+    additionalTaskWeight: 'middle',
   },
 };
 

@@ -247,3 +247,211 @@ in `~/.claude`) so progress isn't lost even if session history elsewhere is gone
   (their live data.json keeps changing between turns — bids, accounts, goal
   targets, notification settings), so always treat data.json contents as current
   reality, not something set by prior test sessions.
+- **2026-08-10 (round 4)**: User cut Counter (unneeded), asked for Timer presets
+  (pre-set multiple named durations, start with one click), said the daily summary
+  notification doesn't belong under Bid Setting and needs its own subtab with "a
+  full report for all works" (not just bid goals), asked to move Daily Task Setting
+  + Additional Task Management into a new Settings subtab called "Task Setting",
+  and asked for a new daily-task type that tracks a percentage directly. Implemented
+  and verified all of it directly — see "Round 4" below.
+- **2026-08-10 (round 5)**: User said the task-management math was wrong and
+  specified an explicit weighted model (HIGH/MIDDLE/LOW = 100/50/25, daily
+  always HIGH, additional configurable), reversed round 4's move of Additional
+  Task Management into Settings (it belongs back in Tasks), asked for the
+  "Today's Total Task Management" name/title to be shortened, asked for a
+  numeric input on percentage tasks and for that input to be removed from
+  Settings entirely (Task Management only), asked for the Time Interval
+  setting to support seconds, asked for a bigger searchable World Clock list,
+  and asked to split Bids back into Bid + Bid Log sub-tabs with Bid Log
+  carrying only the graph+calendar (no table) plus a new by-account/by-platform
+  view. Implemented and verified all of it directly — see "Round 5" below.
+- **2026-08-10 (round 6)**: User asked to move the KPI cards and the bid list
+  from Bid Log to the Bid tab, and to turn the bid list from individual cards
+  into an actual table — that table has to live in the Bid tab, not Bid Log
+  (so Bid Log ends up holding only the Bid History graph+calendar). Pointed out
+  percentage-type daily tasks showed two bars (progress bar + slider) and asked
+  for one. Asked for the Bid Log chart (and, by the "TIME TAB GRAPH IS SAME"
+  note, all line charts) to use a smooth curve instead of straight segments.
+  Implemented and verified all of it directly — see "Round 6" below.
+
+## Round 4 (2026-08-10): Timer presets, Task Setting, Daily Summary report, percentage task type
+
+**Removed: Counter.** Deleted entirely — nav subitem, panel, all JS functions
+(`setupCounterForm`, `adjustCounter`, `resetCounter`, `deleteCounter`,
+`setupCounterCardEvents`, `renderCounters`), CSS, and `counters: []` from
+`main.js` defaultData (replaced by `timerPresets: []`).
+
+**New: Timer presets.** Timer subpanel now has a "Presets" section below the
+manual H/M/S countdown — save a labeled duration once, then start it with one
+click from a card (`state.timerPresets`, persisted). Refactored the countdown
+start logic into `startTimerCountdown(ms)` / `resumeTimerInterval()` so both the
+manual inputs and presets share the same countdown engine — pressing a preset's
+Start button doesn't touch the manual H/M/S inputs at all, just runs the
+countdown directly from the preset's duration.
+
+**Sidebar re-shuffle**: Settings group is now four subtabs: **Time Interval**,
+**Task Setting** (new — merged Daily Task Setting + Additional Task Management,
+moved out of the Tasks group), **Bid Setting** (now *without* the daily summary
+notification row), **Daily Summary** (new). Tasks group shrinks to just Today's
+Total Task Management + Achievement. `goToSubTab('tasks', 'daily'/'additional')`
+calls (from Today's Total Task Management's Edit buttons) updated to
+`goToSubTab('settings', 'tasksetting')` since those panels moved.
+
+**New: Daily Summary subtab** (Settings → Daily Summary) — holds the relocated
+`#goal-summary-time` notification-time input, plus a genuine on-screen report:
+three stat cards (Overall / Daily tasks / Additional tasks, reusing
+`computeTodayTotalPercent()`), a "Bid Goals Today" table, and a live
+"Notification Preview" that shows the *exact* text the OS notification will send
+(`buildDailySummaryReportText()` — one shared function, no drift between what's
+previewed and what's sent). `checkDailySummaryNotification()` now sends this full
+multi-line report regardless of whether any bid goals exist (previously it
+early-returned and skipped the notification entirely if there were zero bid
+goals — that gate is gone, since the report covers all work now, not just bids).
+
+**New daily task type: `percentage`.** Alongside Checklist (`manual`) and Bid
+goal (`bidGoal`), a task can now be type `percentage` — the user drags a slider
+(0–100) to set today's value directly, stored in `dt.percentages[dateKey]`
+(mirrors `completions[dateKey]`'s per-day-map shape). `dailyTaskPercent()` and
+`isDailyTaskAchieved()` (achieved at ≥100%) both got a branch for it; it slots
+into the existing percentage-averaging machinery from Round 3 with no other
+changes needed. Slider UI: `input` event live-updates the `%` label without a
+full re-render (dragging would fight a re-render otherwise), `change` event
+persists via `updateDailyTaskPercentage()` and triggers the normal
+`refreshTasksExtras()` cascade. Wired into both places `dailyTaskItemHtml()`
+renders (Task Setting's own list, and Today's Total Task Management's mirrored
+list) via a shared `setupPercentageSliderEvents(listEl)` helper.
+
+Verified via the Electron/Playwright driver: Counter fully gone from the sidebar;
+saved a "Pomodoro" timer preset and confirmed pressing its Start button counted
+down from the preset's duration (not the manual inputs); Task Setting shows
+Daily Tasks + Additional Tasks merged correctly; created a percentage-type task
+("Read a book"), dragged its slider to 65%, confirmed it persisted and fed into
+the daily average correctly (hand-verified the math against real data each time);
+Daily Summary tab's three stat cards, bid-goals table, and notification preview
+all matched the live math; Bid Setting confirmed to no longer show the summary
+notification row. Zero console errors. Test artifacts (Pomodoro preset) deleted
+after verification — but notably, the real user edited my percentage-type test
+task ("Read a book" → renamed to "Github Caller Contact", value pushed to 100%)
+*during* this session, confirming they're using the app live in parallel; that
+task was left as-is since it's now real user data, not test data.
+
+## Round 5 (2026-08-10): weighted percentages, Bid tab un-merge, seconds interval, richer World Clock
+
+The user pushed back on the round-3/4 "block average" methodology and several
+placement decisions. All corrected and verified.
+
+**Weighted percentage math (replaces the flat block average).** New concept:
+HIGH/MIDDLE/LOW weight levels on a 100/50/25 ratio (`WEIGHT_VALUES` in app.js).
+Daily tasks are **always** weighted HIGH (100) — they regenerate every day and
+matter most. Additional tasks apply only to that one day and get a
+user-configurable weight (`state.settings.additionalTaskWeight`, default
+`middle`), set via a new select in Settings → Daily Summary. `computeTodayTotalPercent()`
+now computes `(dailyPercent × 100 + additionalPercent × additionalWeight) /
+(100 + additionalWeight)` — calculated collectively as one weighted number, not
+two separate totals averaged flatly. Hand-verified against real data repeatedly
+(e.g. daily 36%, additional 0%, weight=middle(50) → overall = (36×100+0×50)/150
+= 24%; switching weight to High gave (36×100+0×100)/200 = 18% — both matched
+the on-screen number exactly).
+
+**Additional Task Management moved back to the Tasks tab** (was wrongly under
+Settings → Task Setting as of round 4). Settings' subtab is now just **"Daily
+Task Setting"** (renamed from "Task Setting", since it no longer merges
+anything) — holds only the Daily Tasks form/list. The Tasks group is back to
+three subtabs: Today's Tasks, Achievement, Additional Task Management.
+
+**"Today's Total Task Management" shortened to "Today's Tasks"** everywhere
+(nav label, title attribute, panel heading) — same `tasks-sub-today` /
+`today-*` ids underneath, only the visible text changed.
+
+**Percentage-type tasks now have a numeric input, not just a slider** — a
+`<input type="number">` sits next to the `<input type="range">`, kept in sync
+live (dragging updates the number, typing updates the slider position),
+committed together on `change` via `updateDailyTaskPercentage()`.
+
+**The percentage input only appears in Task Management, not Settings.**
+`dailyTaskItemHtml(dt, interactive)` takes a second parameter now: Today's
+Tasks' list renders it `interactive = true` (slider + number, live); Settings →
+Daily Task Setting's list renders `interactive = false` (a plain read-only "67%
+today · set in Today's Tasks" line, no controls). `setupPercentageSliderEvents`
+is wired only to `#today-daily-list`, not `#daily-task-list` anymore.
+
+**Time Interval now supports seconds.** `state.settings.trackingIntervalSec`
+replaces `trackingIntervalMin` as the canonical value (Settings → Time Interval
+has a value input + a Minutes/Seconds unit select, clamped 5–3600 seconds).
+`migrateTrackingInterval()` runs once on render to convert any pre-existing
+`trackingIntervalMin` into `trackingIntervalSec` (confirmed against the real
+save: the user's existing "1 min" setting correctly showed as "60" seconds /
+"1" minute depending on which unit was selected, and converting/restoring
+round-tripped correctly).
+
+**World Clock expanded and searchable.** `TIMEZONE_PRESETS` grew from ~22 to
+~68 cities across every populated region. The old `<select>` was replaced with
+a text input (`#worldclock-search`) backed by a `<datalist>` — type to filter,
+`findTimezonePreset()` matches exact-then-partial on the label. Verified adding
+"Ho Chi Minh" correctly matched "Ho Chi Minh City" and added it alongside the
+user's existing real "Tokyo" clock (left untouched).
+
+**Bids un-merged back into two sub-tabs** ("Bid" and "Bid Log" — this reverses
+round 3's merge, which was itself explicitly requested at the time; the user
+has now asked for the opposite). Bid Log's history section renamed "Bid
+History" and **no longer includes the per-goal table** — only the graph and
+the range-tabs/calendar controls, per explicit instruction ("import only the
+graph and calendar"). New in its place: a **"View by" selector** (Overall /
+Account / Platform). Overall still shows the existing bid-goal daily-percentage
+average; Account/Platform show a raw daily bid-count chart
+(`computeBidCountDailyPoints`) for the chosen account or platform — this works
+even when no bid goal is scoped to that account/platform, since it reads
+`state.bids` directly rather than going through goals. `goToTab('bids')` calls
+reverted back to `goToSubTab('bids', 'bid')` (Bids is a nav-group again, not a
+plain item) — the now-fully-unused `goToTab()` helper was deleted.
+
+Verified end-to-end via the Electron/Playwright driver: sidebar structure
+matches exactly; weighted math checked against real data at both weight
+settings; percentage number input syncs with the slider and persists; Settings'
+Daily Task Setting confirmed read-only for percentage tasks; Time Interval
+seconds/minutes round-trips correctly; World Clock search adds the right
+timezone; Bid Log's Account/Platform view populates real accounts/platforms and
+renders a distinct count-based chart. Zero console errors. Every real-data
+value I touched for testing (percentage task value, tracking interval, world
+clock list) was restored to what the live user had set before closing.
+
+## Round 6 (2026-08-10): Bid tab gets the KPIs/table, one bar per % task, smooth charts
+
+**Bid tab now owns the KPIs and the full bid history — as a table.** Bid
+(`bids-sub-bid`) is now: record form → today-bid-hint → stats-cards (Positions
+applied / Approved) → filters (Account/Status) → a real `<table>`
+(`#bid-list-body`, columns: approve checkbox, Company, Account, Status, Date,
+Link, Edit/Delete) — replacing the old `<ul>` of `.task-item` cards.
+`renderBidList()` and `setupBidListEvents()` rewritten for `<tr>` rows instead
+of `<li>` cards (event delegation now looks for `tr[data-id]` via
+`closest('tr[data-id]')`, everything else — toggle/edit/delete/open-link —
+unchanged). Bid Log (`bids-sub-log`) is now *only* the "Bid History" block
+(chart, range-tabs, View-by selector, calendar) — no KPIs, no table.
+
+**Percentage tasks show exactly one bar.** The separate `.daily-progress-bar`
+div was removed from the interactive rendering path — the range slider itself
+is now painted as the bar via an inline `background: linear-gradient(...)`
+split at the current value (`percentageSliderFillStyle()`), updated live on
+both drag (`input` on `.percentage-slider`) and typing
+(`input` on `.percentage-number`). Needed real CSS (`-webkit-appearance: none`
++ a custom `::-webkit-slider-thumb`) since Chromium doesn't let you background
+the track fill on a native-styled range input. Non-interactive percentage
+rendering (Settings → Daily Task Setting) already only had one bar — untouched.
+
+**All line charts are now smooth curves — one shared function, so they're
+automatically consistent everywhere.** Added `buildSmoothLinePath(coords)`
+(Catmull-Rom → cubic Bezier, tension 1/6) and swapped it in for the old
+straight-segment `M`/`L` join inside `buildLineChartSvg()`. Since Time → Log,
+Achievement, and Bid Log's Bid History chart all call the same
+`buildLineChartSvg()`, this one change made all three smooth and visually
+identical in style — which is what "TIME TAB GRAPH IS SAME" was asking for
+(confirmation that Time's chart matches the others, not a request to change it
+differently).
+
+Verified via the Electron/Playwright driver against real, live-changing user
+data (26 real bids by this point, growing during the session): Bid tab shows
+form→KPIs→filters→table in the right order; Bid Log confirmed to hold only the
+graph/calendar; the percentage slider now visibly renders as a single filled
+bar; the Time Log chart and Bid History chart both showed a visibly curved
+(not angular) line through the same kind of dip-then-plateau data shape,
+confirming the shared smoothing. Zero console errors.
