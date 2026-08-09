@@ -2,19 +2,24 @@ const { app, BrowserWindow, ipcMain, Notification, powerMonitor, shell } = requi
 const path = require('path');
 const fs = require('fs');
 
+let activeWin;
+try {
+  activeWin = require('active-win');
+} catch (err) {
+  activeWin = null;
+}
+
 const dataFilePath = () => path.join(app.getPath('userData'), 'data.json');
 
 const defaultData = {
   tasks: [],
   dailyTasks: [],
-  sessions: [],
-  activeTracking: null,
   activityLog: [],
+  appLog: [],
   bids: [],
   platforms: [],
-  settings: {
-    idleThresholdMin: 5,
-  },
+  trackingEnabled: false,
+  settings: {},
 };
 
 function loadData() {
@@ -85,6 +90,17 @@ ipcMain.handle('system:idleState', (event, thresholdSeconds) => ({
   state: powerMonitor.getSystemIdleState(thresholdSeconds || 60),
   idleSeconds: powerMonitor.getSystemIdleTime(),
 }));
+
+ipcMain.handle('system:activeWindow', async () => {
+  if (!activeWin) return null;
+  try {
+    const w = await activeWin();
+    if (!w || !w.owner) return null;
+    return { appName: w.owner.name || null };
+  } catch (err) {
+    return null;
+  }
+});
 
 ipcMain.handle('shell:openExternal', (event, url) => {
   if (typeof url === 'string' && /^https?:\/\//i.test(url)) {

@@ -13,10 +13,24 @@
         <span class="brand-mark">T</span>
         <span class="brand-text">Time Mgmt</span>
       </div>
-      <button class="nav-item active" data-tab="time" title="Time">
-        <span class="nav-icon">&#9201;</span>
-        <span class="nav-label">Time</span>
-      </button>
+      <div class="nav-group">
+        <div class="nav-group-label" title="Time">
+          <span class="nav-icon">&#9201;</span>
+          <span class="nav-label">Time</span>
+        </div>
+        <button class="nav-subitem active" data-tab="time" data-subtab="dashboard" title="Dashboard">
+          <span class="nav-icon">&#9679;</span>
+          <span class="nav-label">Dashboard</span>
+        </button>
+        <button class="nav-subitem" data-tab="time" data-subtab="log" title="Log">
+          <span class="nav-icon">&#9679;</span>
+          <span class="nav-label">Log</span>
+        </button>
+        <button class="nav-subitem" data-tab="time" data-subtab="settings" title="Settings">
+          <span class="nav-icon">&#9679;</span>
+          <span class="nav-label">Settings</span>
+        </button>
+      </div>
       <button class="nav-item" data-tab="tasks" title="Tasks">
         <span class="nav-icon">&#10003;</span>
         <span class="nav-label">Tasks</span>
@@ -31,80 +45,101 @@
     <main class="content">
       <!-- TIME TAB -->
       <section id="tab-time" class="tab-panel active">
-        <div class="time-layout">
-          <div class="time-col-main">
-            <div class="status-row">
-              <span class="status-pill" id="status-pill"><span class="status-dot"></span><span id="status-text">Off</span></span>
-              <span class="status-hint" id="status-hint"></span>
-            </div>
-
-            <div class="timer-wrap">
-              <div class="timer-display" id="tracker-display">00:00:00</div>
-
-              <label class="field timer-task-select">
-                <span>Task (optional)</span>
-                <select id="tracker-task"></select>
-              </label>
-
-              <div class="timer-controls">
-                <button id="tracker-toggle-btn">Start Tracking</button>
-              </div>
-            </div>
-
-            <div class="timeline-wrap">
-              <div class="timeline-header">
-                <h3>Today's activity</h3>
-                <div class="timeline-legend">
-                  <span><i class="dot dot-active"></i>Active</span>
-                  <span><i class="dot dot-idle"></i>Idle</span>
-                  <span><i class="dot dot-locked"></i>Locked</span>
-                  <span><i class="dot dot-empty"></i>Untracked</span>
-                </div>
-              </div>
-              <div id="timeline" class="timeline"></div>
-              <div class="timeline-ruler" id="timeline-ruler"></div>
-            </div>
+        <!-- DASHBOARD -->
+        <div id="time-sub-dashboard" class="time-subpanel active">
+          <div class="status-row">
+            <span class="status-pill" id="status-pill"><span class="status-dot"></span><span id="status-text">&mdash;</span></span>
+            <span class="status-hint" id="status-hint"></span>
+            <button type="button" id="tracking-toggle-btn" class="tracking-toggle-btn">Start Tracking</button>
           </div>
 
-          <div class="time-col-side">
-            <div class="stats-cards vertical">
-              <div class="stat-card">
-                <div class="stat-value" id="stat-active-today">0m</div>
-                <div class="stat-label">Active PC time today (auto)</div>
+          <div class="date-nav">
+            <button type="button" class="small secondary" id="date-prev-btn">&larr;</button>
+            <input type="date" id="dashboard-date" />
+            <button type="button" class="small secondary" id="date-next-btn">&rarr;</button>
+            <button type="button" class="small secondary" id="date-today-btn">Today</button>
+          </div>
+
+          <div class="timeline-wrap">
+            <div class="timeline-legend">
+              <span><i class="dot dot-active"></i>Active</span>
+              <span><i class="dot dot-idle"></i>Idle</span>
+              <span><i class="dot dot-locked"></i>Locked</span>
+              <span><i class="dot dot-empty"></i>Untracked</span>
+              <span class="timeline-legend-hint">Click a row to show its detail below</span>
+            </div>
+            <div class="timeline-rows">
+              <div class="timeline-row" data-view="status">
+                <div class="timeline-row-label">Computer Usage</div>
+                <div id="timeline" class="timeline"></div>
               </div>
-              <div class="stat-card">
-                <div class="stat-value" id="stat-today">0m</div>
-                <div class="stat-label">Tracked today</div>
+              <div class="timeline-row" data-view="app">
+                <div class="timeline-row-label">Applications</div>
+                <div id="app-timeline" class="timeline"></div>
               </div>
-              <div class="stat-card">
-                <div class="stat-value" id="stat-week">0m</div>
-                <div class="stat-label">Tracked this week</div>
-              </div>
-              <div class="stat-card">
-                <div class="stat-value" id="stat-completed">0</div>
-                <div class="stat-label">Tasks completed this week</div>
-              </div>
+              <div class="timeline-now-marker hidden" id="timeline-now-marker"></div>
+            </div>
+            <div class="timeline-ruler" id="timeline-ruler"></div>
+          </div>
+
+          <div class="segments-layout">
+            <div class="section-block">
+              <h2 class="section-heading" id="segment-table-heading">Computer Usage</h2>
+              <table class="segment-table">
+                <thead>
+                  <tr>
+                    <th></th>
+                    <th>Title</th>
+                    <th>Start</th>
+                    <th>End</th>
+                    <th>Duration</th>
+                  </tr>
+                </thead>
+                <tbody id="segment-table-body"></tbody>
+              </table>
+              <p id="segment-table-empty" class="empty-state hidden">No activity recorded for this day.</p>
             </div>
 
+            <div class="section-block">
+              <h2 class="section-heading">Breakdown</h2>
+              <ul id="breakdown-panel-list" class="breakdown-list"></ul>
+              <div class="breakdown-total" id="breakdown-total"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- LOG -->
+        <div id="time-sub-log" class="time-subpanel">
+          <div class="section-block">
+            <h2 class="section-heading">Work Record</h2>
+            <div class="achievement-controls">
+              <button type="button" class="small secondary time-range-btn active" data-range="daily">Daily</button>
+              <button type="button" class="small secondary time-range-btn" data-range="weekly">Weekly</button>
+              <button type="button" class="small secondary time-range-btn" data-range="monthly">Monthly</button>
+              <button type="button" class="small secondary time-range-btn" data-range="custom">Custom</button>
+              <span class="achievement-custom-dates hidden" id="time-custom-dates">
+                <input type="date" id="time-from" />
+                <span>to</span>
+                <input type="date" id="time-to" />
+                <button type="button" class="small" id="time-calc-btn">Show</button>
+              </span>
+            </div>
             <div class="chart-wrap">
-              <h3>Today by hour</h3>
-              <div id="chart-daily" class="chart"></div>
+              <div id="time-line-chart" class="line-chart"></div>
             </div>
+          </div>
+        </div>
 
-            <div class="chart-wrap">
-              <h3>Last 7 days</h3>
-              <div id="chart-weekly" class="chart"></div>
-            </div>
-
-            <details class="timer-settings">
-              <summary>Time tracking settings</summary>
-              <div class="settings-grid">
-                <label class="field">
-                  <span>Idle after (min)</span>
-                  <input type="number" id="setting-idle" min="1" max="60" />
-                </label>
-              </div>
-            </details>
+        <!-- SETTINGS -->
+        <div id="time-sub-settings" class="time-subpanel">
+          <div class="section-block">
+            <h2 class="section-heading">Tracking Settings</h2>
+            <p class="settings-note">
+              Tracking checks for keyboard/mouse input every minute. Any input during that minute marks it
+              <strong>Active</strong>; no input marks it <strong>Idle</strong>. A locked screen is always
+              <strong>Locked</strong>, and time while the tracker is stopped is <strong>Untracked</strong>.
+              There's nothing to configure here right now.
+            </p>
           </div>
         </div>
       </section>
