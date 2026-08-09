@@ -13,32 +13,103 @@
         <span class="brand-mark">T</span>
         <span class="brand-text">Time Mgmt</span>
       </div>
-      <div class="nav-group">
-        <div class="nav-group-label" title="Time">
-          <span class="nav-icon">&#9201;</span>
+      <div class="nav-group expanded" data-tab="time">
+        <button class="nav-group-label" data-tab="time" title="Time">
+          <span class="nav-icon"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg></span>
           <span class="nav-label">Time</span>
+          <span class="nav-group-chevron">&#9656;</span>
+        </button>
+        <div class="nav-group-items">
+          <button class="nav-subitem active" data-tab="time" data-subtab="dashboard" title="Dashboard">
+            <span class="nav-icon"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="3" y1="9" x2="21" y2="9"></line><line x1="9" y1="21" x2="9" y2="9"></line></svg></span>
+            <span class="nav-label">Dashboard</span>
+          </button>
+          <button class="nav-subitem" data-tab="time" data-subtab="log" title="Log">
+            <span class="nav-icon"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="6" x2="21" y2="6"></line><line x1="8" y1="12" x2="21" y2="12"></line><line x1="8" y1="18" x2="21" y2="18"></line><line x1="3" y1="6" x2="3.01" y2="6"></line><line x1="3" y1="12" x2="3.01" y2="12"></line><line x1="3" y1="18" x2="3.01" y2="18"></line></svg></span>
+            <span class="nav-label">Log</span>
+          </button>
         </div>
-        <button class="nav-subitem active" data-tab="time" data-subtab="dashboard" title="Dashboard">
-          <span class="nav-icon">&#9679;</span>
-          <span class="nav-label">Dashboard</span>
-        </button>
-        <button class="nav-subitem" data-tab="time" data-subtab="log" title="Log">
-          <span class="nav-icon">&#9679;</span>
-          <span class="nav-label">Log</span>
-        </button>
-        <button class="nav-subitem" data-tab="time" data-subtab="settings" title="Settings">
-          <span class="nav-icon">&#9679;</span>
-          <span class="nav-label">Settings</span>
-        </button>
       </div>
-      <button class="nav-item" data-tab="tasks" title="Tasks">
-        <span class="nav-icon">&#10003;</span>
-        <span class="nav-label">Tasks</span>
+
+      <div class="nav-group" data-tab="tasks">
+        <button class="nav-group-label" data-tab="tasks" title="Tasks">
+          <span class="nav-icon"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 11 12 14 22 4"></polyline><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"></path></svg></span>
+          <span class="nav-label">Tasks</span>
+          <span class="nav-group-chevron">&#9656;</span>
+        </button>
+        <div class="nav-group-items">
+          <button class="nav-subitem" data-tab="tasks" data-subtab="today" title="Today's Total Task Management">
+            <span class="nav-icon"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><path d="M9 12l2 2 4-4"></path></svg></span>
+            <span class="nav-label">Today's Total Task Management</span>
+          </button>
+          <button class="nav-subitem" data-tab="tasks" data-subtab="achievement" title="Achievement">
+            <span class="nav-icon"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="7"></circle><polyline points="8.21 13.89 7 23 12 20 17 23 15.79 13.88"></polyline></svg></span>
+            <span class="nav-label">Achievement</span>
+          </button>
+          <button class="nav-subitem" data-tab="tasks" data-subtab="additional" title="Additional Task Management">
+            <span class="nav-icon"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"></path><rect x="8" y="2" width="8" height="4" rx="1" ry="1"></rect></svg></span>
+            <span class="nav-label">Additional Task Management</span>
+          </button>
+          <button class="nav-subitem" data-tab="tasks" data-subtab="daily" title="Daily Task Setting">
+            <span class="nav-icon"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="17 1 21 5 17 9"></polyline><path d="M3 11V9a4 4 0 0 1 4-4h14"></path><polyline points="7 23 3 19 7 15"></polyline><path d="M21 13v2a4 4 0 0 1-4 4H3"></path></svg></span>
+            <span class="nav-label">Daily Task Setting</span>
+          </button>
+        </div>
+      </div>
+
+      <button class="nav-item" data-tab="bids" title="Bids">
+        <span class="nav-icon"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg></span>
+        <span class="nav-label">Bids</span>
       </button>
-      <button class="nav-item" data-tab="bids" title="Bid Management">
-        <span class="nav-icon">&#128188;</span>
-        <span class="nav-label">Bid Management</span>
-      </button>
+
+      <div class="nav-group" data-tab="alarm">
+        <button class="nav-group-label" data-tab="alarm" title="Alarm &amp; Clock">
+          <span class="nav-icon"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="13" r="8"></circle><path d="M12 9v4l2.5 2.5"></path><path d="M5 3 2 6"></path><path d="M22 6l-3-3"></path></svg></span>
+          <span class="nav-label">Alarm &amp; Clock</span>
+          <span class="nav-group-chevron">&#9656;</span>
+        </button>
+        <div class="nav-group-items">
+          <button class="nav-subitem active" data-tab="alarm" data-subtab="alarms" title="Alarms">
+            <span class="nav-icon"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path><path d="M13.73 21a2 2 0 0 1-3.46 0"></path></svg></span>
+            <span class="nav-label">Alarms</span>
+          </button>
+          <button class="nav-subitem" data-tab="alarm" data-subtab="timer" title="Timer">
+            <span class="nav-icon"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="13" r="8"></circle><path d="M12 9v4l2 2"></path><path d="M9 1h6"></path></svg></span>
+            <span class="nav-label">Timer</span>
+          </button>
+          <button class="nav-subitem" data-tab="alarm" data-subtab="stopwatch" title="Stopwatch">
+            <span class="nav-icon"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="13" r="8"></circle><line x1="12" y1="13" x2="15" y2="11"></line><line x1="12" y1="3" x2="12" y2="5"></line><line x1="9" y1="1" x2="15" y2="1"></line></svg></span>
+            <span class="nav-label">Stopwatch</span>
+          </button>
+          <button class="nav-subitem" data-tab="alarm" data-subtab="worldclock" title="World Clock">
+            <span class="nav-icon"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="2" y1="12" x2="22" y2="12"></line><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path></svg></span>
+            <span class="nav-label">World Clock</span>
+          </button>
+          <button class="nav-subitem" data-tab="alarm" data-subtab="counter" title="Counter">
+            <span class="nav-icon"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="9" x2="20" y2="9"></line><line x1="4" y1="15" x2="20" y2="15"></line><line x1="10" y1="3" x2="8" y2="21"></line><line x1="16" y1="3" x2="14" y2="21"></line></svg></span>
+            <span class="nav-label">Counter</span>
+          </button>
+        </div>
+      </div>
+
+      <div class="nav-group" data-tab="settings">
+        <button class="nav-group-label" data-tab="settings" title="Settings">
+          <span class="nav-icon"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg></span>
+          <span class="nav-label">Settings</span>
+          <span class="nav-group-chevron">&#9656;</span>
+        </button>
+        <div class="nav-group-items">
+          <button class="nav-subitem active" data-tab="settings" data-subtab="interval" title="Time Interval">
+            <span class="nav-icon"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="21" x2="4" y2="14"></line><line x1="4" y1="10" x2="4" y2="3"></line><line x1="12" y1="21" x2="12" y2="12"></line><line x1="12" y1="8" x2="12" y2="3"></line><line x1="20" y1="21" x2="20" y2="16"></line><line x1="20" y1="12" x2="20" y2="3"></line><line x1="1" y1="14" x2="7" y2="14"></line><line x1="9" y1="8" x2="15" y2="8"></line><line x1="17" y1="16" x2="23" y2="16"></line></svg></span>
+            <span class="nav-label">Time Interval</span>
+          </button>
+          <button class="nav-subitem" data-tab="settings" data-subtab="bidsetting" title="Bid Setting">
+            <span class="nav-icon"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="7" width="20" height="14" rx="2" ry="2"></rect><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"></path></svg></span>
+            <span class="nav-label">Bid Setting</span>
+          </button>
+        </div>
+      </div>
+
       <button class="sidebar-pin" id="sidebar-pin" title="Pin sidebar open">&#187;</button>
     </nav>
 
@@ -46,7 +117,7 @@
       <!-- TIME TAB -->
       <section id="tab-time" class="tab-panel active">
         <!-- DASHBOARD -->
-        <div id="time-sub-dashboard" class="time-subpanel active">
+        <div id="time-sub-dashboard" class="subpanel active">
           <div class="status-row">
             <span class="status-pill" id="status-pill"><span class="status-dot"></span><span id="status-text">&mdash;</span></span>
             <span class="status-hint" id="status-hint"></span>
@@ -66,7 +137,7 @@
               <span><i class="dot dot-idle"></i>Idle</span>
               <span><i class="dot dot-locked"></i>Locked</span>
               <span><i class="dot dot-empty"></i>Untracked</span>
-              <span class="timeline-legend-hint">Click a row to show its detail below</span>
+              <span class="timeline-legend-hint">Click a row for detail below &middot; scroll to zoom</span>
             </div>
             <div class="timeline-rows">
               <div class="timeline-row" data-view="status">
@@ -81,6 +152,7 @@
             </div>
             <div class="timeline-ruler" id="timeline-ruler"></div>
           </div>
+          <div class="chart-tooltip hidden" id="chart-tooltip"></div>
 
           <div class="segments-layout">
             <div class="section-block">
@@ -109,105 +181,135 @@
         </div>
 
         <!-- LOG -->
-        <div id="time-sub-log" class="time-subpanel">
-          <div class="section-block">
-            <h2 class="section-heading">Work Record</h2>
-            <div class="achievement-controls">
-              <button type="button" class="small secondary time-range-btn active" data-range="daily">Daily</button>
-              <button type="button" class="small secondary time-range-btn" data-range="weekly">Weekly</button>
-              <button type="button" class="small secondary time-range-btn" data-range="monthly">Monthly</button>
-              <button type="button" class="small secondary time-range-btn" data-range="custom">Custom</button>
-              <span class="achievement-custom-dates hidden" id="time-custom-dates">
-                <input type="date" id="time-from" />
-                <span>to</span>
-                <input type="date" id="time-to" />
-                <button type="button" class="small" id="time-calc-btn">Show</button>
-              </span>
+        <div id="time-sub-log" class="subpanel">
+          <h2 class="section-heading">Work Record</h2>
+          <div class="log-layout">
+            <div class="log-range-tabs">
+              <button type="button" class="log-range-btn active" data-preset="today">Today</button>
+              <button type="button" class="log-range-btn" data-preset="yesterday">Yesterday</button>
+              <button type="button" class="log-range-btn" data-preset="thisWeek">This Week</button>
+              <button type="button" class="log-range-btn" data-preset="lastWeek">Last Week</button>
+              <button type="button" class="log-range-btn" data-preset="thisMonth">This Month</button>
+              <button type="button" class="log-range-btn" data-preset="lastMonth">Last Month</button>
+              <button type="button" class="log-range-btn" data-preset="thisYear">This Year</button>
             </div>
-            <div class="chart-wrap">
+
+            <div class="chart-wrap log-chart-wrap">
               <div id="time-line-chart" class="line-chart"></div>
             </div>
-          </div>
-        </div>
 
-        <!-- SETTINGS -->
-        <div id="time-sub-settings" class="time-subpanel">
-          <div class="section-block">
-            <h2 class="section-heading">Tracking Settings</h2>
-            <p class="settings-note">
-              Tracking checks for keyboard/mouse input every minute. Any input during that minute marks it
-              <strong>Active</strong>; no input marks it <strong>Idle</strong>. A locked screen is always
-              <strong>Locked</strong>, and time while the tracker is stopped is <strong>Untracked</strong>.
-              There's nothing to configure here right now.
-            </p>
+            <div class="log-calendar">
+              <div class="calendar-header">
+                <button type="button" class="small secondary" id="cal-prev-btn">&larr;</button>
+                <span id="cal-month-label"></span>
+                <button type="button" class="small secondary" id="cal-next-btn">&rarr;</button>
+              </div>
+              <div class="calendar-weekdays">
+                <span>Mo</span><span>Tu</span><span>We</span><span>Th</span><span>Fr</span><span>Sa</span><span>Su</span>
+              </div>
+              <div class="calendar-grid" id="calendar-grid"></div>
+              <div class="calendar-range-label" id="calendar-range-label"></div>
+              <p class="calendar-hint">Click a day, then click another to set a manual range.</p>
+            </div>
           </div>
         </div>
       </section>
 
       <!-- TASKS TAB -->
       <section id="tab-tasks" class="tab-panel">
-        <div class="section-block">
-          <h2 class="section-heading">Daily Tasks <span class="section-sub">resets every day</span></h2>
-
-          <form id="daily-task-form" class="task-form">
-            <input type="hidden" id="daily-editing-id" />
-            <div class="form-row">
-              <input type="text" id="daily-title" placeholder="Daily task title" required maxlength="200" />
-              <label class="field">
-                <span>Type</span>
-                <select id="daily-type">
-                  <option value="manual">Checklist</option>
-                  <option value="bidGoal">Bid goal (auto)</option>
-                </select>
-              </label>
-              <label class="field daily-target-field hidden">
-                <span>Target bids/day</span>
-                <input type="number" id="daily-target" min="1" max="999" />
-              </label>
-              <label class="field">
-                <span>Deadline (optional)</span>
-                <input type="time" id="daily-deadline" />
-              </label>
-              <button type="submit" id="daily-submit-btn">Add Daily Task</button>
-              <button type="button" id="daily-cancel-edit" class="secondary hidden">Cancel</button>
-            </div>
-          </form>
-
-          <ul id="daily-task-list" class="task-list"></ul>
-          <p id="daily-task-empty" class="empty-state hidden">No daily tasks yet. Add one above.</p>
-        </div>
-
-        <div class="section-block">
-          <h2 class="section-heading">Achievements</h2>
-          <div class="achievement-controls">
-            <button type="button" class="small secondary achv-range-btn active" data-range="daily">Daily</button>
-            <button type="button" class="small secondary achv-range-btn" data-range="weekly">Weekly</button>
-            <button type="button" class="small secondary achv-range-btn" data-range="yearly">Yearly</button>
-            <button type="button" class="small secondary achv-range-btn" data-range="custom">Custom</button>
-            <span class="achievement-custom-dates hidden" id="achievement-custom-dates">
-              <input type="date" id="achv-from" />
-              <span>to</span>
-              <input type="date" id="achv-to" />
-              <button type="button" class="small" id="achv-calc-btn">Calculate</button>
-            </span>
-          </div>
+        <!-- TODAY'S TOTAL TASK MANAGEMENT -->
+        <div id="tasks-sub-today" class="subpanel active">
+          <h2 class="section-heading">Today's Total Task Management <span class="section-sub">daily tasks + additional tasks due today, in percentages</span></h2>
           <div class="stats-cards">
             <div class="stat-card">
-              <div class="stat-value" id="achv-rate">0%</div>
-              <div class="stat-label">Daily task achievement</div>
+              <div class="stat-value" id="today-total-rate">0%</div>
+              <div class="stat-label">Today's overall performance</div>
             </div>
             <div class="stat-card">
-              <div class="stat-value" id="achv-fraction">0 / 0</div>
-              <div class="stat-label">Achieved / due</div>
+              <div class="stat-value" id="today-daily-rate">0%</div>
+              <div class="stat-label">Daily tasks</div>
             </div>
             <div class="stat-card">
-              <div class="stat-value" id="achv-additional">0</div>
-              <div class="stat-label">Additional tasks completed</div>
+              <div class="stat-value" id="today-additional-rate">0%</div>
+              <div class="stat-label">Additional tasks</div>
+            </div>
+          </div>
+
+          <div class="section-block">
+            <h2 class="section-heading">Daily Tasks</h2>
+            <ul id="today-daily-list" class="task-list"></ul>
+            <p id="today-daily-empty" class="empty-state hidden">No daily tasks yet.</p>
+          </div>
+
+          <div class="section-block">
+            <h2 class="section-heading">Additional Tasks <span class="section-sub">due today</span></h2>
+            <ul id="today-additional-list" class="task-list"></ul>
+            <p id="today-additional-empty" class="empty-state hidden">No additional tasks due today.</p>
+          </div>
+        </div>
+
+        <!-- ACHIEVEMENT -->
+        <div id="tasks-sub-achievement" class="subpanel">
+          <h2 class="section-heading">Achievements</h2>
+          <div class="log-layout">
+            <div class="log-range-tabs">
+              <button type="button" class="log-range-btn achv-range-btn active" data-preset="today">Today</button>
+              <button type="button" class="log-range-btn achv-range-btn" data-preset="yesterday">Yesterday</button>
+              <button type="button" class="log-range-btn achv-range-btn" data-preset="thisWeek">This Week</button>
+              <button type="button" class="log-range-btn achv-range-btn" data-preset="lastWeek">Last Week</button>
+              <button type="button" class="log-range-btn achv-range-btn" data-preset="thisMonth">This Month</button>
+              <button type="button" class="log-range-btn achv-range-btn" data-preset="lastMonth">Last Month</button>
+              <button type="button" class="log-range-btn achv-range-btn" data-preset="thisYear">This Year</button>
+            </div>
+
+            <div>
+              <div class="stats-cards">
+                <div class="stat-card">
+                  <div class="stat-value" id="achv-rate">0%</div>
+                  <div class="stat-label">Daily task achievement (averaged)</div>
+                </div>
+                <div class="stat-card">
+                  <div class="stat-value" id="achv-additional">0</div>
+                  <div class="stat-label">Additional tasks completed</div>
+                </div>
+              </div>
+
+              <div class="chart-wrap log-chart-wrap" id="achv-chart-wrap">
+                <div id="achv-line-chart" class="line-chart"></div>
+              </div>
+
+              <table class="segment-table">
+                <thead>
+                  <tr>
+                    <th>Task</th>
+                    <th>Type</th>
+                    <th>Days tracked</th>
+                    <th>Rate</th>
+                  </tr>
+                </thead>
+                <tbody id="achv-goal-report-body"></tbody>
+              </table>
+              <p id="achv-goal-report-empty" class="empty-state hidden">No daily tasks yet.</p>
+            </div>
+
+            <div class="log-calendar">
+              <div class="calendar-header">
+                <button type="button" class="small secondary" id="achv-cal-prev-btn">&larr;</button>
+                <span id="achv-cal-month-label"></span>
+                <button type="button" class="small secondary" id="achv-cal-next-btn">&rarr;</button>
+              </div>
+              <div class="calendar-weekdays">
+                <span>Mo</span><span>Tu</span><span>We</span><span>Th</span><span>Fr</span><span>Sa</span><span>Su</span>
+              </div>
+              <div class="calendar-grid" id="achv-calendar-grid"></div>
+              <div class="calendar-range-label" id="achv-calendar-range-label"></div>
+              <p class="calendar-hint">Click a day, then click another to set a manual range.</p>
             </div>
           </div>
         </div>
 
-        <div class="section-block">
+        <!-- ADDITIONAL TASK MANAGEMENT -->
+        <div id="tasks-sub-additional" class="subpanel">
           <h2 class="section-heading">Additional Tasks</h2>
 
           <form id="task-form" class="task-form">
@@ -259,83 +361,336 @@
           <ul id="task-list" class="task-list"></ul>
           <p id="task-empty" class="empty-state hidden">No tasks yet. Add one above.</p>
         </div>
+
+        <!-- DAILY TASK SETTING -->
+        <div id="tasks-sub-daily" class="subpanel">
+          <h2 class="section-heading">Daily Tasks <span class="section-sub">resets every day</span></h2>
+
+          <form id="daily-task-form" class="task-form">
+            <input type="hidden" id="daily-editing-id" />
+            <div class="form-row">
+              <input type="text" id="daily-title" placeholder="Daily task title" required maxlength="200" />
+              <label class="field">
+                <span>Type</span>
+                <select id="daily-type">
+                  <option value="manual">Checklist</option>
+                  <option value="bidGoal">Bid goal (auto)</option>
+                </select>
+              </label>
+              <label class="field daily-target-field hidden">
+                <span>Target bids/day</span>
+                <input type="number" id="daily-target" min="1" max="999" />
+              </label>
+              <label class="field">
+                <span>Deadline (optional)</span>
+                <input type="time" id="daily-deadline" />
+              </label>
+              <button type="submit" id="daily-submit-btn">Add Daily Task</button>
+              <button type="button" id="daily-cancel-edit" class="secondary hidden">Cancel</button>
+            </div>
+          </form>
+
+          <ul id="daily-task-list" class="task-list"></ul>
+          <p id="daily-task-empty" class="empty-state hidden">No daily tasks yet. Add one above.</p>
+        </div>
       </section>
 
-      <!-- BID MANAGEMENT TAB -->
+      <!-- BIDS TAB (merged Bid + Bid Log) -->
       <section id="tab-bids" class="tab-panel">
-        <div class="subtabs">
-          <button type="button" class="subtab-btn bid-subtab-btn active" data-subtab="bid">Bid</button>
-          <button type="button" class="subtab-btn bid-subtab-btn" data-subtab="log">Bid Log</button>
+        <h2 class="section-heading">Bids</h2>
+        <form id="bid-form" class="task-form">
+          <input type="hidden" id="bid-editing-id" />
+          <div class="form-row">
+            <input type="text" id="bid-company" placeholder="Company" required maxlength="200" />
+            <label class="field">
+              <span>Account</span>
+              <select id="bid-account">
+                <option value="">Select account</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>Platform</span>
+              <select id="bid-platform">
+                <option value="">Select platform</option>
+              </select>
+            </label>
+            <input type="url" id="bid-link" placeholder="Bid link (https://...)" maxlength="500" />
+          </div>
+          <div class="form-row">
+            <span class="field"><span>Bid time</span><span class="system-time-hint">system time, set automatically</span></span>
+            <button type="submit" id="bid-submit-btn">Record Bid</button>
+            <button type="button" id="bid-cancel-edit" class="secondary hidden">Cancel</button>
+          </div>
+        </form>
+
+        <p class="today-bid-hint" id="today-bid-hint"></p>
+
+        <div class="section-block goal-history-block">
+          <h2 class="section-heading">Goal Achievement History</h2>
+          <div class="chart-wrap log-chart-wrap">
+            <div id="goalhist-line-chart" class="line-chart"></div>
+          </div>
+          <div class="log-layout">
+            <div class="log-range-tabs">
+              <button type="button" class="log-range-btn goalhist-range-btn active" data-preset="today">Today</button>
+              <button type="button" class="log-range-btn goalhist-range-btn" data-preset="yesterday">Yesterday</button>
+              <button type="button" class="log-range-btn goalhist-range-btn" data-preset="thisWeek">This Week</button>
+              <button type="button" class="log-range-btn goalhist-range-btn" data-preset="lastWeek">Last Week</button>
+              <button type="button" class="log-range-btn goalhist-range-btn" data-preset="thisMonth">This Month</button>
+              <button type="button" class="log-range-btn goalhist-range-btn" data-preset="lastMonth">Last Month</button>
+              <button type="button" class="log-range-btn goalhist-range-btn" data-preset="thisYear">This Year</button>
+            </div>
+
+            <table class="segment-table">
+              <thead>
+                <tr>
+                  <th>Goal</th>
+                  <th>Scope</th>
+                  <th>Days tracked</th>
+                  <th>Rate</th>
+                </tr>
+              </thead>
+              <tbody id="goalhist-report-body"></tbody>
+            </table>
+            <p id="goalhist-report-empty" class="empty-state hidden">No bid goals yet.</p>
+
+            <div class="log-calendar">
+              <div class="calendar-header">
+                <button type="button" class="small secondary" id="goalhist-cal-prev-btn">&larr;</button>
+                <span id="goalhist-cal-month-label"></span>
+                <button type="button" class="small secondary" id="goalhist-cal-next-btn">&rarr;</button>
+              </div>
+              <div class="calendar-weekdays">
+                <span>Mo</span><span>Tu</span><span>We</span><span>Th</span><span>Fr</span><span>Sa</span><span>Su</span>
+              </div>
+              <div class="calendar-grid" id="goalhist-calendar-grid"></div>
+              <div class="calendar-range-label" id="goalhist-calendar-range-label"></div>
+              <p class="calendar-hint">Click a day, then click another to set a manual range.</p>
+            </div>
+          </div>
         </div>
 
-        <!-- BID (quick record) -->
-        <div id="bid-sub-bid" class="bid-subpanel active">
+        <div class="stats-cards">
+          <div class="stat-card">
+            <div class="stat-value" id="bid-stat-count">0</div>
+            <div class="stat-label">Positions applied</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-value" id="bid-stat-approved">0</div>
+            <div class="stat-label">Approved</div>
+          </div>
+        </div>
+
+        <div class="filters">
+          <label class="field">
+            <span>Account</span>
+            <select id="bid-filter-account">
+              <option value="">All</option>
+            </select>
+          </label>
+          <label class="field">
+            <span>Status</span>
+            <select id="bid-filter-status">
+              <option value="">All</option>
+              <option value="pending">Pending</option>
+              <option value="approved">Approved</option>
+            </select>
+          </label>
+          <div class="filter-spacer"></div>
+          <div class="task-count" id="bid-count"></div>
+        </div>
+
+        <ul id="bid-list" class="task-list"></ul>
+        <p id="bid-empty" class="empty-state hidden">No bids logged yet.</p>
+      </section>
+
+      <!-- ALARM & CLOCK TAB -->
+      <section id="tab-alarm" class="tab-panel">
+        <!-- ALARMS -->
+        <div id="alarm-sub-alarms" class="subpanel active">
+          <h2 class="section-heading">Alarms</h2>
+          <form id="alarm-form" class="task-form">
+            <input type="hidden" id="alarm-editing-id" />
+            <div class="form-row">
+              <label class="field">
+                <span>Time</span>
+                <input type="time" id="alarm-time" required />
+              </label>
+              <input type="text" id="alarm-label" placeholder="Label (optional)" maxlength="120" />
+              <button type="submit" id="alarm-submit-btn">Add Alarm</button>
+              <button type="button" id="alarm-cancel-edit" class="secondary hidden">Cancel</button>
+            </div>
+            <div class="form-row">
+              <span class="field"><span>Repeat</span></span>
+              <div class="day-picker" id="alarm-day-picker">
+                <button type="button" class="day-toggle" data-day="1">Mo</button>
+                <button type="button" class="day-toggle" data-day="2">Tu</button>
+                <button type="button" class="day-toggle" data-day="3">We</button>
+                <button type="button" class="day-toggle" data-day="4">Th</button>
+                <button type="button" class="day-toggle" data-day="5">Fr</button>
+                <button type="button" class="day-toggle" data-day="6">Sa</button>
+                <button type="button" class="day-toggle" data-day="0">Su</button>
+              </div>
+              <span class="settings-note" style="margin:0;">No days selected = rings once, then turns itself off.</span>
+            </div>
+          </form>
+          <div id="alarm-cards" class="alarm-cards"></div>
+          <p id="alarm-empty" class="empty-state hidden">No alarms set. Add one above.</p>
+        </div>
+
+        <!-- TIMER -->
+        <div id="alarm-sub-timer" class="subpanel">
+          <h2 class="section-heading">Timer</h2>
+          <div class="clock-display" id="timer-display">00:00:00</div>
+          <div class="form-row" id="timer-inputs">
+            <label class="field">
+              <span>Hours</span>
+              <input type="number" id="timer-input-h" min="0" max="23" value="0" />
+            </label>
+            <label class="field">
+              <span>Minutes</span>
+              <input type="number" id="timer-input-m" min="0" max="59" value="5" />
+            </label>
+            <label class="field">
+              <span>Seconds</span>
+              <input type="number" id="timer-input-s" min="0" max="59" value="0" />
+            </label>
+          </div>
+          <div class="form-row">
+            <button type="button" id="timer-start-btn">Start</button>
+            <button type="button" id="timer-pause-btn" class="secondary hidden">Pause</button>
+            <button type="button" id="timer-reset-btn" class="secondary">Reset</button>
+          </div>
+        </div>
+
+        <!-- STOPWATCH -->
+        <div id="alarm-sub-stopwatch" class="subpanel">
+          <h2 class="section-heading">Stopwatch</h2>
+          <div class="clock-display" id="stopwatch-display">00:00:00.0</div>
+          <div class="form-row">
+            <button type="button" id="stopwatch-start-btn">Start</button>
+            <button type="button" id="stopwatch-pause-btn" class="secondary hidden">Pause</button>
+            <button type="button" id="stopwatch-lap-btn" class="secondary">Lap</button>
+            <button type="button" id="stopwatch-reset-btn" class="secondary">Reset</button>
+          </div>
+          <ul id="stopwatch-laps" class="task-list"></ul>
+        </div>
+
+        <!-- WORLD CLOCK -->
+        <div id="alarm-sub-worldclock" class="subpanel">
+          <h2 class="section-heading">World Clock</h2>
+          <form id="worldclock-form" class="inline-form">
+            <select id="worldclock-tz-select"></select>
+            <button type="submit">Add Clock</button>
+          </form>
+          <div id="worldclock-cards" class="alarm-cards"></div>
+          <p id="worldclock-empty" class="empty-state hidden">No clocks added yet.</p>
+        </div>
+
+        <!-- COUNTER -->
+        <div id="alarm-sub-counter" class="subpanel">
+          <h2 class="section-heading">Counter</h2>
+          <form id="counter-form" class="inline-form">
+            <input type="text" id="counter-label" placeholder="Counter label (e.g. Pushups)" maxlength="80" required />
+            <button type="submit">Add Counter</button>
+          </form>
+          <div id="counter-cards" class="alarm-cards"></div>
+          <p id="counter-empty" class="empty-state hidden">No counters yet.</p>
+        </div>
+      </section>
+
+      <!-- SETTINGS TAB -->
+      <section id="tab-settings" class="tab-panel">
+        <!-- TIME INTERVAL -->
+        <div id="settings-sub-interval" class="subpanel active">
+          <div class="section-block">
+            <h2 class="section-heading">Tracking Settings</h2>
+            <p class="settings-note">
+              Tracking checks for keyboard/mouse input every interval below. Any input during that time marks it
+              <strong>Active</strong>; no input marks it <strong>Idle</strong>. A locked screen is always
+              <strong>Locked</strong>, and time while the tracker is stopped is <strong>Untracked</strong>.
+            </p>
+            <div class="settings-grid">
+              <label class="field">
+                <span>Tracking interval (min)</span>
+                <input type="number" id="setting-interval" min="1" max="60" />
+              </label>
+            </div>
+          </div>
+        </div>
+
+        <!-- BID SETTING (merged Platforms + Daily Plan + Account Management) -->
+        <div id="settings-sub-bidsetting" class="subpanel">
+          <h2 class="section-heading">Bid Setting</h2>
+
           <div class="section-block">
             <h2 class="section-heading">Platforms</h2>
             <form id="platform-form" class="inline-form">
-              <input type="text" id="platform-name" placeholder="Add a platform (e.g. Upwork)" maxlength="80" required />
+              <input type="text" id="platform-name" placeholder="Add a platform (e.g. Upwork, LinkedIn)" maxlength="80" required />
               <button type="submit">Add Platform</button>
             </form>
             <div id="platform-cards" class="platform-cards"></div>
             <p id="platform-empty" class="empty-state hidden">No platforms registered yet.</p>
           </div>
 
-          <form id="bid-form" class="task-form">
-            <input type="hidden" id="bid-editing-id" />
-            <div class="form-row">
-              <input type="text" id="bid-company" placeholder="Company" required maxlength="200" />
+          <div class="section-block">
+            <h2 class="section-heading">Daily Plan <span class="section-sub">auto-tracked from bids recorded each day</span></h2>
+
+            <div class="form-row goal-summary-row">
               <label class="field">
-                <span>Platform</span>
-                <select id="bid-platform">
-                  <option value="">Select platform</option>
-                </select>
+                <span>Daily summary notification time</span>
+                <input type="time" id="goal-summary-time" />
               </label>
-              <input type="url" id="bid-link" placeholder="Bid link (https://...)" maxlength="500" />
+              <span class="settings-note" style="margin:0;">Leave blank to disable. Sends one notification per day summarizing all goals' status (e.g. "3/5 goals met today").</span>
             </div>
-            <div class="form-row">
-              <span class="field"><span>Bid time</span><span class="system-time-hint">system time, set automatically</span></span>
-              <button type="submit" id="bid-submit-btn">Record Bid</button>
-              <button type="button" id="bid-cancel-edit" class="secondary hidden">Cancel</button>
-            </div>
-          </form>
 
-          <p class="today-bid-hint" id="today-bid-hint"></p>
-        </div>
-
-        <!-- BID LOG (history) -->
-        <div id="bid-sub-log" class="bid-subpanel">
-          <div class="stats-cards">
-            <div class="stat-card">
-              <div class="stat-value" id="bid-stat-count">0</div>
-              <div class="stat-label">Positions applied</div>
-            </div>
-            <div class="stat-card">
-              <div class="stat-value" id="bid-stat-approved">0</div>
-              <div class="stat-label">Approved</div>
-            </div>
+            <form id="bid-goal-form" class="task-form">
+              <input type="hidden" id="bid-goal-editing-id" />
+              <div class="form-row">
+                <input type="text" id="bid-goal-title" placeholder="Goal title (e.g. Daily bid target)" required maxlength="200" />
+                <label class="field">
+                  <span>Target bids/day</span>
+                  <input type="number" id="bid-goal-target" min="1" max="999" />
+                </label>
+                <label class="field">
+                  <span>Scope</span>
+                  <select id="bid-goal-scope-type">
+                    <option value="overall">Overall</option>
+                    <option value="account">Account</option>
+                    <option value="platform">Platform</option>
+                  </select>
+                </label>
+                <label class="field bid-goal-scope-ref-field hidden">
+                  <span>Scope target</span>
+                  <select id="bid-goal-scope-ref"></select>
+                </label>
+                <label class="field">
+                  <span>Deadline (optional)</span>
+                  <input type="time" id="bid-goal-deadline" />
+                </label>
+                <button type="submit" id="bid-goal-submit-btn">Add Goal</button>
+                <button type="button" id="bid-goal-cancel-edit" class="secondary hidden">Cancel</button>
+              </div>
+            </form>
+            <div id="bid-goal-cards" class="goal-cards"></div>
+            <p id="bid-goal-empty" class="empty-state hidden">No daily bid goals yet. Add one above.</p>
           </div>
 
-          <div class="filters">
-            <label class="field">
-              <span>Platform</span>
-              <select id="bid-filter-platform">
-                <option value="">All</option>
-              </select>
-            </label>
-            <label class="field">
-              <span>Status</span>
-              <select id="bid-filter-status">
-                <option value="">All</option>
-                <option value="pending">Pending</option>
-                <option value="approved">Approved</option>
-              </select>
-            </label>
-            <div class="filter-spacer"></div>
-            <div class="task-count" id="bid-count"></div>
+          <div class="section-block">
+            <h2 class="section-heading">Account Management <span class="section-sub">members you bid as</span></h2>
+            <form id="account-form" class="task-form">
+              <input type="hidden" id="account-editing-id" />
+              <div class="form-row">
+                <input type="text" id="account-member" placeholder="Member name (e.g. Ulises)" required maxlength="120" />
+                <input type="text" id="account-country" placeholder="Country (optional)" maxlength="80" />
+                <input type="text" id="account-notes" placeholder="Notes (optional)" maxlength="300" />
+                <button type="submit" id="account-submit-btn">Add Account</button>
+                <button type="button" id="account-cancel-edit" class="secondary hidden">Cancel</button>
+              </div>
+            </form>
+            <div id="account-cards" class="platform-cards"></div>
+            <p id="account-empty" class="empty-state hidden">No accounts registered yet.</p>
           </div>
-
-          <ul id="bid-list" class="task-list"></ul>
-          <p id="bid-empty" class="empty-state hidden">No bids logged yet.</p>
         </div>
       </section>
     </main>

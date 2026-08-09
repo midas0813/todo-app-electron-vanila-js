@@ -61,22 +61,47 @@ function escapeHtml(str) {
 
 /* ---------- sidebar navigation ---------- */
 
+function goToSubTab(tab, subtab) {
+  document.querySelector(`.nav-subitem[data-tab="${tab}"][data-subtab="${subtab}"]`).click();
+}
+
+function goToTab(tab) {
+  document.querySelector(`.nav-item[data-tab="${tab}"]`).click();
+}
+
+function expandNavGroup(tab) {
+  document.querySelectorAll('.nav-group').forEach((g) => {
+    g.classList.toggle('expanded', g.dataset.tab === tab);
+  });
+}
+
 function setupSidebar() {
+  document.querySelectorAll('.nav-group-label').forEach((label) => {
+    label.addEventListener('click', () => expandNavGroup(label.dataset.tab));
+  });
+
   document.querySelectorAll('.nav-item, .nav-subitem').forEach((btn) => {
     btn.addEventListener('click', () => {
       document.querySelectorAll('.nav-item, .nav-subitem').forEach((b) => b.classList.remove('active'));
       document.querySelectorAll('.tab-panel').forEach((p) => p.classList.remove('active'));
       btn.classList.add('active');
       document.getElementById(`tab-${btn.dataset.tab}`).classList.add('active');
+      expandNavGroup(btn.dataset.tab);
 
       if (btn.dataset.subtab) {
-        document.querySelectorAll('.time-subpanel').forEach((p) => p.classList.remove('active'));
-        document.getElementById(`time-sub-${btn.dataset.subtab}`).classList.add('active');
+        document.querySelectorAll('.subpanel').forEach((p) => p.classList.remove('active'));
+        document.getElementById(`${btn.dataset.tab}-sub-${btn.dataset.subtab}`).classList.add('active');
       }
 
       if (btn.dataset.tab === 'time') renderTimeSection();
       if (btn.dataset.tab === 'tasks') refreshTasksExtras();
       if (btn.dataset.tab === 'bids') renderBids();
+      if (btn.dataset.tab === 'alarm') {
+        renderAlarms();
+        renderWorldClocks();
+        renderCounters();
+      }
+      if (btn.dataset.tab === 'settings') renderBids();
     });
   });
 
@@ -304,12 +329,14 @@ function setupTaskListEvents() {
 
 /* ---------- activity tracking (automatic: active / idle / locked, manual start/stop) ---------- */
 
-const ACTIVITY_TICK_MS = 60000;
+let activityIntervalMs = 60000;
 let activityInterval = null;
+let trackingStartMs = null;
 
 function startTrackingLoop() {
   if (activityInterval) return;
-  activityInterval = setInterval(activityTick, ACTIVITY_TICK_MS);
+  trackingStartMs = Date.now();
+  activityInterval = setInterval(activityTick, activityIntervalMs);
   activityTick();
 }
 
@@ -318,7 +345,15 @@ function stopTrackingLoop() {
     clearInterval(activityInterval);
     activityInterval = null;
   }
+  trackingStartMs = null;
   setStatusPill('stopped');
+}
+
+function applyTrackingInterval() {
+  if (activityInterval) {
+    clearInterval(activityInterval);
+    activityInterval = setInterval(activityTick, activityIntervalMs);
+  }
 }
 
 function setupTrackingToggle() {
@@ -363,14 +398,19 @@ function setStatusPill(kind) {
   }
 }
 
+function earliestSegmentStartMs(nowMs) {
+  const backdated = nowMs - activityIntervalMs;
+  return trackingStartMs !== null ? Math.max(backdated, trackingStartMs) : backdated;
+}
+
 function recordActivitySample(sampleState) {
   const now = new Date();
   const last = state.activityLog[state.activityLog.length - 1];
-  if (last && last.state === sampleState && now.getTime() - new Date(last.end).getTime() < ACTIVITY_TICK_MS * 3) {
+  if (last && last.state === sampleState && now.getTime() - new Date(last.end).getTime() < activityIntervalMs * 3) {
     last.end = now.toISOString();
   } else {
     state.activityLog.push({
-      start: new Date(now.getTime() - ACTIVITY_TICK_MS).toISOString(),
+      start: new Date(earliestSegmentStartMs(now.getTime())).toISOString(),
       end: now.toISOString(),
       state: sampleState,
     });
@@ -386,11 +426,11 @@ function pruneActivityLog() {
 function recordAppSample(appName) {
   const now = new Date();
   const last = state.appLog[state.appLog.length - 1];
-  if (last && last.appName === appName && now.getTime() - new Date(last.end).getTime() < ACTIVITY_TICK_MS * 3) {
+  if (last && last.appName === appName && now.getTime() - new Date(last.end).getTime() < activityIntervalMs * 3) {
     last.end = now.toISOString();
   } else {
     state.appLog.push({
-      start: new Date(now.getTime() - ACTIVITY_TICK_MS).toISOString(),
+      start: new Date(earliestSegmentStartMs(now.getTime())).toISOString(),
       end: now.toISOString(),
       appName,
     });
@@ -404,7 +444,7 @@ function pruneAppLog() {
 }
 
 async function activityTick() {
-  const thresholdSeconds = Math.max(1, Math.round(ACTIVITY_TICK_MS / 1000));
+  const thresholdSeconds = Math.max(1, Math.round(activityIntervalMs / 1000));
   const result = await window.api.getIdleState(thresholdSeconds);
 
   let sampleState;
@@ -430,8 +470,6 @@ async function activityTick() {
 }
 
 /* ---------- dashboard day view (Computer Usage + Applications, ManicTime-style) ---------- */
-
-const TIMELINE_SLOTS = 48; // 30-minute slots across 24h
 
 const STATUS_COLORS = { active: '#57c785', idle: '#ffb84d', locked: '#a389f4' };
 function statusColor(s) {
@@ -494,112 +532,188 @@ function setupDateNav() {
   });
 }
 
+/* Zoom: how much of the day is currently visible on the timeline bars. */
+const DAY_MS = 24 * 3600 * 1000;
+const MIN_ZOOM_MS = 15 * 60 * 1000; // 15 minutes
+let timelineZoomMs = DAY_MS;
+
+function getTimelineViewRange(dateKey) {
+  const dayStart = new Date(`${dateKey}T00:00:00`).getTime();
+  const dayEnd = dayStart + DAY_MS;
+  if (timelineZoomMs >= DAY_MS) return { viewStart: dayStart, viewEnd: dayEnd };
+
+  const now = Date.now();
+  const center = dateKey === dayKey(new Date()) && now >= dayStart && now <= dayEnd ? now : dayStart + DAY_MS / 2;
+
+  let viewStart = center - timelineZoomMs / 2;
+  let viewEnd = center + timelineZoomMs / 2;
+  if (viewStart < dayStart) {
+    viewEnd += dayStart - viewStart;
+    viewStart = dayStart;
+  }
+  if (viewEnd > dayEnd) {
+    viewStart -= viewEnd - dayEnd;
+    viewEnd = dayEnd;
+  }
+  return { viewStart: Math.max(dayStart, viewStart), viewEnd: Math.min(dayEnd, viewEnd) };
+}
+
+function setupTimelineZoom() {
+  const wrap = document.querySelector('.timeline-wrap');
+  wrap.addEventListener(
+    'wheel',
+    (e) => {
+      e.preventDefault();
+      const zoomFactor = e.deltaY < 0 ? 0.75 : 1 / 0.75;
+      timelineZoomMs = Math.min(DAY_MS, Math.max(MIN_ZOOM_MS, timelineZoomMs * zoomFactor));
+      renderTimeline();
+      renderAppTimeline();
+      renderNowMarker();
+      renderTimelineRuler();
+    },
+    { passive: false }
+  );
+}
+
+/* "Nice" tick steps (ms) to choose from when drawing the ruler at any zoom level. */
+const RULER_NICE_STEPS_MIN = [5, 10, 15, 30, 60, 120, 180, 360, 720, 1440];
+
 function renderTimelineRuler() {
+  const { viewStart, viewEnd } = getTimelineViewRange(dashboardDateKey);
+  const rangeMs = viewEnd - viewStart;
+  const rawStepMin = rangeMs / 1000 / 60 / 8;
+  const stepMin = RULER_NICE_STEPS_MIN.find((m) => m >= rawStepMin) || RULER_NICE_STEPS_MIN[RULER_NICE_STEPS_MIN.length - 1];
+  const stepMs = stepMin * 60000;
+
   const labels = [];
-  for (let h = 0; h <= 24; h += 3) {
-    labels.push(`<span>${pad(h % 24)}:00</span>`);
+  for (let t = Math.ceil(viewStart / stepMs) * stepMs; t <= viewEnd; t += stepMs) {
+    const pct = ((t - viewStart) / rangeMs) * 100;
+    labels.push(`<span style="left:${pct.toFixed(2)}%">${fmtTime(t)}</span>`);
   }
   document.getElementById('timeline-ruler').innerHTML = labels.join('');
 }
 
-function computeSlotStatus(slotStart, slotEnd) {
-  let hasActive = false;
-  let hasIdle = false;
-  let hasLocked = false;
-  for (const entry of state.activityLog) {
+function dominantKeyInRange(log, keyField, rangeStart, rangeEnd) {
+  const durByKey = {};
+  for (const entry of log) {
     const es = new Date(entry.start).getTime();
     const ee = new Date(entry.end).getTime();
-    if (es < slotEnd && ee > slotStart) {
-      if (entry.state === 'active') hasActive = true;
-      else if (entry.state === 'idle') hasIdle = true;
-      else if (entry.state === 'locked') hasLocked = true;
-    }
-  }
-  if (hasActive) return 'active';
-  if (hasLocked) return 'locked';
-  if (hasIdle) return 'idle';
-  return null;
-}
-
-function computeSlotApp(slotStart, slotEnd) {
-  const durByApp = {};
-  for (const entry of state.appLog) {
-    const es = new Date(entry.start).getTime();
-    const ee = new Date(entry.end).getTime();
-    const overlapStart = Math.max(es, slotStart);
-    const overlapEnd = Math.min(ee, slotEnd);
+    const overlapStart = Math.max(es, rangeStart);
+    const overlapEnd = Math.min(ee, rangeEnd);
     if (overlapEnd > overlapStart) {
-      durByApp[entry.appName] = (durByApp[entry.appName] || 0) + (overlapEnd - overlapStart);
+      durByKey[entry[keyField]] = (durByKey[entry[keyField]] || 0) + (overlapEnd - overlapStart);
     }
   }
-  const entries = Object.entries(durByApp);
+  const entries = Object.entries(durByKey);
   if (!entries.length) return null;
   entries.sort((a, b) => b[1] - a[1]);
   return entries[0][0];
 }
 
-function slotTooltip(slotStart, slotEnd, status, appName) {
-  const timeLabel = `${fmtTime(slotStart)}–${fmtTime(slotEnd)}`;
+function slotTooltip(rangeStart, rangeEnd, status, appName) {
+  const timeLabel = `${fmtTime(rangeStart)}–${fmtTime(rangeEnd)}`;
   const statusLabel = status ? capitalize(status) : 'Untracked';
   const appLabel = appName || 'No app data';
   return `${timeLabel} · ${statusLabel} · ${appLabel}`;
 }
 
-function renderTimeline() {
-  const dayStart = new Date(`${dashboardDateKey}T00:00:00`).getTime();
-  const slotMs = (24 * 3600 * 1000) / TIMELINE_SLOTS;
+/* Build the real, variable-width segments covering [viewStart, viewEnd) — no fixed
+   buckets. Gaps with no log entry (or time not yet reached) become "untracked" (key=null). */
+function buildViewSegments(log, keyField, viewStart, viewEnd) {
   const now = Date.now();
+  const visibleEnd = Math.min(viewEnd, now);
+  if (visibleEnd <= viewStart) return [{ start: viewStart, end: viewEnd, key: null }];
 
-  const html = [];
-  for (let i = 0; i < TIMELINE_SLOTS; i++) {
-    const slotStart = dayStart + i * slotMs;
-    const slotEnd = slotStart + slotMs;
-    let status = null;
-    let appName = null;
-    if (slotStart < now) {
-      status = computeSlotStatus(slotStart, slotEnd);
-      appName = computeSlotApp(slotStart, slotEnd);
+  const entries = log
+    .map((e) => ({ start: new Date(e.start).getTime(), end: new Date(e.end).getTime(), key: e[keyField] }))
+    .filter((e) => e.end > viewStart && e.start < visibleEnd)
+    .map((e) => ({ start: Math.max(e.start, viewStart), end: Math.min(e.end, visibleEnd), key: e.key }))
+    .sort((a, b) => a.start - b.start);
+
+  const segments = [];
+  let cursor = viewStart;
+  for (const e of entries) {
+    if (e.start > cursor) segments.push({ start: cursor, end: e.start, key: null });
+    if (e.end > cursor) {
+      segments.push({ start: Math.max(e.start, cursor), end: e.end, key: e.key });
+      cursor = e.end;
     }
-    const cls = status || '';
-    const tooltip = escapeHtml(slotTooltip(slotStart, slotEnd, status, appName));
-    html.push(`<div class="timeline-slot ${cls}" title="${tooltip}"></div>`);
   }
-  document.getElementById('timeline').innerHTML = html.join('');
+  if (cursor < viewEnd) segments.push({ start: cursor, end: viewEnd, key: null });
+  return segments;
+}
+
+function renderTimeline() {
+  const { viewStart, viewEnd } = getTimelineViewRange(dashboardDateKey);
+  const rangeMs = viewEnd - viewStart;
+  const segments = buildViewSegments(state.activityLog, 'state', viewStart, viewEnd);
+
+  const html = segments
+    .map((seg) => {
+      const widthPct = ((seg.end - seg.start) / rangeMs) * 100;
+      const cls = seg.key || '';
+      const appName = seg.key ? dominantKeyInRange(state.appLog, 'appName', seg.start, seg.end) : null;
+      const tooltip = escapeHtml(slotTooltip(seg.start, seg.end, seg.key, appName));
+      return `<div class="timeline-slot ${cls}" style="width:${widthPct}%" data-tooltip="${tooltip}"></div>`;
+    })
+    .join('');
+  document.getElementById('timeline').innerHTML = html;
 }
 
 function renderAppTimeline() {
-  const dayStart = new Date(`${dashboardDateKey}T00:00:00`).getTime();
-  const slotMs = (24 * 3600 * 1000) / TIMELINE_SLOTS;
-  const now = Date.now();
+  const { viewStart, viewEnd } = getTimelineViewRange(dashboardDateKey);
+  const rangeMs = viewEnd - viewStart;
+  const segments = buildViewSegments(state.appLog, 'appName', viewStart, viewEnd);
 
-  const html = [];
-  for (let i = 0; i < TIMELINE_SLOTS; i++) {
-    const slotStart = dayStart + i * slotMs;
-    const slotEnd = slotStart + slotMs;
-    let status = null;
-    let appName = null;
-    let style = '';
-    if (slotStart < now) {
-      status = computeSlotStatus(slotStart, slotEnd);
-      appName = computeSlotApp(slotStart, slotEnd);
-      if (appName) style = `background:${colorForApp(appName)}`;
-    }
-    const tooltip = escapeHtml(slotTooltip(slotStart, slotEnd, status, appName));
-    html.push(`<div class="timeline-slot" style="${style}" title="${tooltip}"></div>`);
-  }
-  document.getElementById('app-timeline').innerHTML = html.join('');
+  const html = segments
+    .map((seg) => {
+      const widthPct = ((seg.end - seg.start) / rangeMs) * 100;
+      const style = seg.key ? `background:${colorForApp(seg.key)};` : '';
+      const status = seg.key ? dominantKeyInRange(state.activityLog, 'state', seg.start, seg.end) : null;
+      const tooltip = escapeHtml(slotTooltip(seg.start, seg.end, status, seg.key));
+      return `<div class="timeline-slot" style="${style}width:${widthPct}%" data-tooltip="${tooltip}"></div>`;
+    })
+    .join('');
+  document.getElementById('app-timeline').innerHTML = html;
 }
 
 function renderNowMarker() {
   const marker = document.getElementById('timeline-now-marker');
-  if (dashboardDateKey !== dayKey(new Date())) {
+  const now = Date.now();
+  const { viewStart, viewEnd } = getTimelineViewRange(dashboardDateKey);
+  if (dashboardDateKey !== dayKey(new Date()) || now < viewStart || now > viewEnd) {
     marker.classList.add('hidden');
     return;
   }
   marker.classList.remove('hidden');
-  const dayStart = startOfDay(new Date()).getTime();
-  const pct = ((Date.now() - dayStart) / (24 * 3600 * 1000)) * 100;
+  const pct = ((now - viewStart) / (viewEnd - viewStart)) * 100;
   marker.style.left = `${pct}%`;
+}
+
+function setupChartTooltip() {
+  const tooltip = document.getElementById('chart-tooltip');
+  const rows = document.querySelector('.timeline-rows');
+
+  rows.addEventListener('mousemove', (e) => {
+    const slot = e.target.closest('.timeline-slot');
+    if (!slot || !slot.dataset.tooltip) {
+      tooltip.classList.add('hidden');
+      return;
+    }
+    tooltip.textContent = slot.dataset.tooltip;
+    tooltip.classList.remove('hidden');
+
+    const margin = 14;
+    let left = e.clientX + margin;
+    let top = e.clientY + margin;
+    const rect = tooltip.getBoundingClientRect();
+    if (left + rect.width > window.innerWidth) left = e.clientX - rect.width - margin;
+    if (top + rect.height > window.innerHeight) top = e.clientY - rect.height - margin;
+    tooltip.style.left = `${left}px`;
+    tooltip.style.top = `${top}px`;
+  });
+
+  rows.addEventListener('mouseleave', () => tooltip.classList.add('hidden'));
 }
 
 function segmentsForDate(log, dateKey) {
@@ -715,6 +829,7 @@ function renderDashboardDay() {
   renderTimeline();
   renderAppTimeline();
   renderNowMarker();
+  renderTimelineRuler();
   updateTimelineRowSelection();
   renderSegmentTable();
   renderBreakdownPanel();
@@ -733,51 +848,32 @@ function activeSecondsInRange(rangeStartMs, rangeEndMs) {
   return seconds;
 }
 
-function getWorkRecordPoints(range) {
-  const now = new Date();
-  const todayStart = startOfDay(now).getTime();
-
-  if (range === 'daily') {
+function getWorkRecordPoints() {
+  if (logRangeFrom === logRangeTo) {
+    const dayStart = new Date(`${logRangeFrom}T00:00:00`).getTime();
     const points = [];
     for (let h = 0; h < 24; h++) {
-      const hourStart = todayStart + h * 3600 * 1000;
-      points.push({ label: `${h}:00`, seconds: activeSecondsInRange(hourStart, hourStart + 3600 * 1000) });
+      const hourStart = dayStart + h * 3600 * 1000;
+      points.push({ label: `${h}:00`, value: activeSecondsInRange(hourStart, hourStart + 3600 * 1000) });
     }
     return points;
   }
 
-  let fromKey;
-  let toKey = dayKey(now);
-
-  if (range === 'weekly') {
-    fromKey = dayKey(new Date(todayStart - 6 * 24 * 3600 * 1000));
-  } else if (range === 'monthly') {
-    fromKey = dayKey(new Date(todayStart - 29 * 24 * 3600 * 1000));
-  } else {
-    fromKey = document.getElementById('time-from').value || toKey;
-    toKey = document.getElementById('time-to').value || toKey;
-    if (fromKey > toKey) {
-      const tmp = fromKey;
-      fromKey = toKey;
-      toKey = tmp;
-    }
-  }
-
   const points = [];
-  const cursor = new Date(`${fromKey}T00:00:00`);
-  const end = new Date(`${toKey}T00:00:00`);
+  const cursor = new Date(`${logRangeFrom}T00:00:00`);
+  const end = new Date(`${logRangeTo}T00:00:00`);
   while (cursor <= end) {
     const dayStartMs = startOfDay(cursor).getTime();
     points.push({
       label: cursor.toLocaleDateString([], { month: 'short', day: 'numeric' }),
-      seconds: activeSecondsInRange(dayStartMs, dayStartMs + 24 * 3600 * 1000),
+      value: activeSecondsInRange(dayStartMs, dayStartMs + 24 * 3600 * 1000),
     });
     cursor.setDate(cursor.getDate() + 1);
   }
   return points;
 }
 
-function buildLineChartSvg(points) {
+function buildLineChartSvg(points, formatValue = formatMinutesShort, maxHint = 60) {
   const width = 640;
   const height = 180;
   const padLeft = 8;
@@ -787,12 +883,12 @@ function buildLineChartSvg(points) {
   const plotWidth = width - padLeft - padRight;
   const plotHeight = height - padTop - padBottom;
 
-  const maxVal = Math.max(60, ...points.map((p) => p.seconds));
+  const maxVal = Math.max(maxHint, ...points.map((p) => p.value));
   const stepX = points.length > 1 ? plotWidth / (points.length - 1) : 0;
 
   const coords = points.map((p, i) => ({
     x: padLeft + stepX * i,
-    y: padTop + plotHeight - (p.seconds / maxVal) * plotHeight,
+    y: padTop + plotHeight - (p.value / maxVal) * plotHeight,
     p,
   }));
 
@@ -807,7 +903,7 @@ function buildLineChartSvg(points) {
       (c) =>
         `<circle cx="${c.x.toFixed(1)}" cy="${c.y.toFixed(1)}" r="3" class="line-point"><title>${escapeHtml(
           c.p.label
-        )}: ${formatMinutesShort(c.p.seconds)}</title></circle>`
+        )}: ${formatValue(c.p.value)}</title></circle>`
     )
     .join('');
 
@@ -830,34 +926,208 @@ function buildLineChartSvg(points) {
     </svg>`;
 }
 
-let workRecordRange = 'daily';
+let logRangeFrom = dayKey(new Date());
+let logRangeTo = dayKey(new Date());
 
-function setupTimeRangeButtons() {
-  document.querySelectorAll('.time-range-btn').forEach((btn) => {
+function startOfWeekMonday(d) {
+  const x = startOfDay(d);
+  const dow = (x.getDay() + 6) % 7; // 0 = Monday
+  x.setDate(x.getDate() - dow);
+  return x;
+}
+
+function formatDateLabel(key) {
+  return new Date(`${key}T00:00:00`).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' });
+}
+
+/* Shared by any "Today/Yesterday/This Week/.../This Year" range-tab UI (Log, Achievement). */
+function computePresetRange(preset, today) {
+  const todayKey = dayKey(today);
+
+  if (preset === 'today') return { from: todayKey, to: todayKey };
+
+  if (preset === 'yesterday') {
+    const y = new Date(today);
+    y.setDate(y.getDate() - 1);
+    return { from: dayKey(y), to: dayKey(y) };
+  }
+
+  if (preset === 'thisWeek') {
+    const start = startOfWeekMonday(today);
+    const end = new Date(start);
+    end.setDate(end.getDate() + 6);
+    return { from: dayKey(start), to: dayKey(end) };
+  }
+
+  if (preset === 'lastWeek') {
+    const start = startOfWeekMonday(today);
+    start.setDate(start.getDate() - 7);
+    const end = new Date(start);
+    end.setDate(end.getDate() + 6);
+    return { from: dayKey(start), to: dayKey(end) };
+  }
+
+  if (preset === 'thisMonth') {
+    const start = new Date(today.getFullYear(), today.getMonth(), 1);
+    const end = new Date(today.getFullYear(), today.getMonth() + 1, 0);
+    return { from: dayKey(start), to: dayKey(end) };
+  }
+
+  if (preset === 'lastMonth') {
+    const firstThisMonth = new Date(today.getFullYear(), today.getMonth(), 1);
+    const lastMonthEnd = new Date(firstThisMonth.getTime() - 24 * 3600 * 1000);
+    const lastMonthStart = new Date(lastMonthEnd.getFullYear(), lastMonthEnd.getMonth(), 1);
+    return { from: dayKey(lastMonthStart), to: dayKey(lastMonthEnd) };
+  }
+
+  if (preset === 'thisYear') {
+    return { from: `${today.getFullYear()}-01-01`, to: `${today.getFullYear()}-12-31` };
+  }
+
+  return { from: todayKey, to: todayKey };
+}
+
+/* Reusable calendar widget: a month grid with click-to-select single day or drag-free
+   two-click range, used by both the Log tab and the Achievement tab. */
+function createCalendarWidget(opts) {
+  let viewMonth = new Date();
+  let selectStart = null;
+
+  function render() {
+    const from = opts.getFrom();
+    const to = opts.getTo();
+    const year = viewMonth.getFullYear();
+    const month = viewMonth.getMonth();
+    document.getElementById(opts.monthLabelId).textContent = viewMonth.toLocaleDateString([], {
+      month: 'long',
+      year: 'numeric',
+    });
+
+    const firstOfMonth = new Date(year, month, 1);
+    const startOffset = (firstOfMonth.getDay() + 6) % 7; // Monday-start offset
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
+    const todayKey = dayKey(new Date());
+
+    const cells = [];
+    for (let i = 0; i < startOffset; i++) cells.push('<span class="cal-cell empty"></span>');
+    for (let d = 1; d <= daysInMonth; d++) {
+      const key = dayKey(new Date(year, month, d));
+      const classes = ['cal-cell'];
+      if (key >= from && key <= to) classes.push('in-range');
+      if (key === from) classes.push('range-start');
+      if (key === to) classes.push('range-end');
+      if (key === todayKey) classes.push('is-today');
+      cells.push(`<button type="button" class="${classes.join(' ')}" data-date="${key}">${d}</button>`);
+    }
+
+    document.getElementById(opts.gridId).innerHTML = cells.join('');
+    document.getElementById(opts.rangeLabelId).textContent =
+      from === to ? formatDateLabel(from) : `${formatDateLabel(from)} – ${formatDateLabel(to)}`;
+  }
+
+  function setup() {
+    document.getElementById(opts.prevBtnId).addEventListener('click', () => {
+      viewMonth.setMonth(viewMonth.getMonth() - 1);
+      render();
+    });
+    document.getElementById(opts.nextBtnId).addEventListener('click', () => {
+      viewMonth.setMonth(viewMonth.getMonth() + 1);
+      render();
+    });
+    document.getElementById(opts.gridId).addEventListener('click', (e) => {
+      const cell = e.target.closest('.cal-cell[data-date]');
+      if (!cell) return;
+      const key = cell.dataset.date;
+
+      if (selectStart === null) {
+        selectStart = key;
+        opts.setRange(key, key);
+      } else {
+        opts.setRange(selectStart < key ? selectStart : key, selectStart < key ? key : selectStart);
+        selectStart = null;
+      }
+
+      opts.clearPreset();
+      render();
+      opts.onChange();
+    });
+  }
+
+  function goToMonth(dateKey) {
+    viewMonth = new Date(`${dateKey}T00:00:00`);
+  }
+
+  return { render, setup, goToMonth };
+}
+
+const logCalendar = createCalendarWidget({
+  prevBtnId: 'cal-prev-btn',
+  nextBtnId: 'cal-next-btn',
+  monthLabelId: 'cal-month-label',
+  gridId: 'calendar-grid',
+  rangeLabelId: 'calendar-range-label',
+  getFrom: () => logRangeFrom,
+  getTo: () => logRangeTo,
+  setRange: (from, to) => {
+    logRangeFrom = from;
+    logRangeTo = to;
+  },
+  clearPreset: () => clearActiveLogPreset(),
+  onChange: () => renderWorkRecordChart(),
+});
+
+function applyLogPreset(preset) {
+  const range = computePresetRange(preset, new Date());
+  logRangeFrom = range.from;
+  logRangeTo = range.to;
+
+  logCalendar.goToMonth(logRangeFrom);
+  logCalendar.render();
+  renderWorkRecordChart();
+}
+
+function clearActiveLogPreset() {
+  document.querySelectorAll('.log-range-btn').forEach((b) => b.classList.remove('active'));
+}
+
+function setupLogRangeTabs() {
+  document.querySelectorAll('.log-range-btn').forEach((btn) => {
     btn.addEventListener('click', () => {
-      document.querySelectorAll('.time-range-btn').forEach((b) => b.classList.remove('active'));
+      clearActiveLogPreset();
       btn.classList.add('active');
-      workRecordRange = btn.dataset.range;
-      document.getElementById('time-custom-dates').classList.toggle('hidden', workRecordRange !== 'custom');
-      if (workRecordRange !== 'custom') renderWorkRecordChart();
+      applyLogPreset(btn.dataset.preset);
     });
   });
+}
 
-  document.getElementById('time-calc-btn').addEventListener('click', renderWorkRecordChart);
-
-  const today = dayKey(new Date());
-  document.getElementById('time-from').value = today;
-  document.getElementById('time-to').value = today;
+function setupCalendar() {
+  logCalendar.setup();
 }
 
 function renderWorkRecordChart() {
-  const points = getWorkRecordPoints(workRecordRange);
+  const points = getWorkRecordPoints();
   document.getElementById('time-line-chart').innerHTML = buildLineChartSvg(points);
 }
 
+function onSettingsChanged() {
+  state.settings.trackingIntervalMin = clampInt(document.getElementById('setting-interval').value, 1, 60, 1);
+  persist();
+  activityIntervalMs = state.settings.trackingIntervalMin * 60000;
+  applyTrackingInterval();
+}
+
+function setupTimeSettingsForm() {
+  document.getElementById('setting-interval').addEventListener('change', onSettingsChanged);
+}
+
+function renderTimerSettings() {
+  document.getElementById('setting-interval').value = state.settings.trackingIntervalMin || 1;
+  activityIntervalMs = (state.settings.trackingIntervalMin || 1) * 60000;
+}
 
 function renderTimeSection() {
   renderDashboardDay();
+  logCalendar.render();
   renderWorkRecordChart();
 }
 
@@ -892,7 +1162,7 @@ function checkDailyDeadlines() {
     const achieved = isDailyTaskAchieved(dt, todayKey);
     if (!achieved) {
       const status =
-        dt.type === 'bidGoal' ? `${bidCountForDate(todayKey)}/${dt.targetCount} bids submitted` : 'not completed';
+        dt.type === 'bidGoal' ? `${bidCountForGoal(dt, todayKey)}/${dt.targetCount} bids submitted` : 'not completed';
       window.api.notify('Daily goal missed', `${dt.title}: ${status}`);
     }
     dt.notifiedDates.push(todayKey);
@@ -906,12 +1176,33 @@ function checkDailyDeadlines() {
   }
 }
 
+function checkDailySummaryNotification() {
+  const time = state.settings.dailySummaryTime;
+  if (!time) return;
+  const todayKey = dayKey(new Date());
+  if (state.settings.dailySummaryNotifiedDate === todayKey) return;
+  if (timeStringNow() < time) return;
+
+  const dayEnd = endOfDay(new Date()).getTime();
+  const goals = bidGoalsList().filter((dt) => new Date(dt.createdAt).getTime() <= dayEnd);
+  if (goals.length === 0) return;
+
+  const metCount = goals.filter((dt) => isDailyTaskAchieved(dt, todayKey)).length;
+  window.api.notify('Daily goals summary', `${metCount}/${goals.length} goals met today`);
+  state.settings.dailySummaryNotifiedDate = todayKey;
+  persist();
+}
+
 function startReminderLoop() {
   checkReminders();
   checkDailyDeadlines();
+  checkDailySummaryNotification();
+  checkAlarms();
   setInterval(() => {
     checkReminders();
     checkDailyDeadlines();
+    checkDailySummaryNotification();
+    checkAlarms();
   }, 30000);
 }
 
@@ -921,11 +1212,49 @@ function bidCountForDate(dateKeyStr) {
   return state.bids.filter((b) => b.date === dateKeyStr).length;
 }
 
+function bidCountForGoal(dt, dateKeyStr) {
+  const scope = dt.scope || { type: 'overall' };
+  return state.bids.filter((b) => {
+    if (b.date !== dateKeyStr) return false;
+    if (scope.type === 'account') return b.accountId === scope.refId;
+    if (scope.type === 'platform') return b.platform === scope.refId;
+    return true;
+  }).length;
+}
+
 function isDailyTaskAchieved(dt, dateKeyStr) {
   if (dt.type === 'bidGoal') {
-    return bidCountForDate(dateKeyStr) >= (dt.targetCount || 0);
+    return bidCountForGoal(dt, dateKeyStr) >= (dt.targetCount || 0);
   }
   return !!dt.completions[dateKeyStr];
+}
+
+/* Exact percentage for a single daily task on a single day — bid goals are the
+   real bids-made-today divided by target (uncapped, so over-target shows >100%);
+   checklist tasks are binary 0/100. Used to average daily-task performance instead
+   of a blunt achieved/not-achieved count. */
+function dailyTaskPercent(dt, dateKeyStr) {
+  if (dt.type === 'bidGoal') {
+    const count = bidCountForGoal(dt, dateKeyStr);
+    const target = dt.targetCount || 1;
+    return (count / target) * 100;
+  }
+  return dt.completions[dateKeyStr] ? 100 : 0;
+}
+
+function dueDailyTasks(dateKeyStr) {
+  const dayEnd = endOfDay(new Date(`${dateKeyStr}T00:00:00`)).getTime();
+  return state.dailyTasks.filter((dt) => new Date(dt.createdAt).getTime() <= dayEnd);
+}
+
+/* The averaged daily-task percentage for one day — daily tasks carry high weight,
+   so each task's exact percentage (not a binary achieved flag) counts equally into
+   the average, giving partial credit for partial progress. */
+function computeDailyAveragePercent(dateKeyStr) {
+  const due = dueDailyTasks(dateKeyStr);
+  if (due.length === 0) return { percent: 0, due: 0 };
+  const total = due.reduce((sum, dt) => sum + dailyTaskPercent(dt, dateKeyStr), 0);
+  return { percent: total / due.length, due: due.length };
 }
 
 function setupDailyTaskForm() {
@@ -1013,6 +1342,46 @@ function toggleDailyCompletion(id) {
   refreshTasksExtras();
 }
 
+function dailyTaskItemHtml(dt) {
+  const today = dayKey(new Date());
+  const achieved = isDailyTaskAchieved(dt, today);
+  let progressHtml = '';
+  let checkboxHtml = '';
+
+  if (dt.type === 'bidGoal') {
+    const count = bidCountForGoal(dt, today);
+    const exactPct = dailyTaskPercent(dt, today);
+    const barPct = Math.min(100, Math.round(exactPct));
+    progressHtml = `
+      <div class="daily-progress-bar"><div class="daily-progress-fill ${achieved ? 'achieved' : ''}" style="width:${barPct}%"></div></div>
+      <div class="task-notes">${count} / ${dt.targetCount} bids today &middot; ${Math.round(exactPct)}%</div>`;
+  } else {
+    checkboxHtml = `<input type="checkbox" class="daily-toggle" ${achieved ? 'checked' : ''} />`;
+  }
+
+  const missedDeadline = dt.deadlineTime && !achieved && timeStringNow() >= dt.deadlineTime;
+  const deadlineBadge = dt.deadlineTime
+    ? `<span class="badge ${missedDeadline ? 'due-overdue' : ''}">Deadline ${dt.deadlineTime}</span>`
+    : '';
+
+  return `
+    <li class="task-item ${achieved ? 'completed' : ''}" data-id="${dt.id}">
+      ${checkboxHtml}
+      <div class="task-main">
+        <div class="task-title">${escapeHtml(dt.title)}</div>
+        ${progressHtml}
+        <div class="task-meta">
+          <span class="badge">${dt.type === 'bidGoal' ? 'Bid goal' : 'Checklist'}</span>
+          ${deadlineBadge}
+        </div>
+      </div>
+      <div class="task-actions">
+        <button class="small secondary edit-btn">Edit</button>
+        <button class="small danger delete-btn">Delete</button>
+      </div>
+    </li>`;
+}
+
 function renderDailyTasks() {
   const list = document.getElementById('daily-task-list');
   const empty = document.getElementById('daily-task-empty');
@@ -1023,48 +1392,7 @@ function renderDailyTasks() {
     return;
   }
   empty.classList.add('hidden');
-
-  const today = dayKey(new Date());
-
-  list.innerHTML = state.dailyTasks
-    .map((dt) => {
-      const achieved = isDailyTaskAchieved(dt, today);
-      let progressHtml = '';
-      let checkboxHtml = '';
-
-      if (dt.type === 'bidGoal') {
-        const count = bidCountForDate(today);
-        const pct = Math.min(100, Math.round((count / (dt.targetCount || 1)) * 100));
-        progressHtml = `
-          <div class="daily-progress-bar"><div class="daily-progress-fill ${achieved ? 'achieved' : ''}" style="width:${pct}%"></div></div>
-          <div class="task-notes">${count} / ${dt.targetCount} bids today</div>`;
-      } else {
-        checkboxHtml = `<input type="checkbox" class="daily-toggle" ${achieved ? 'checked' : ''} />`;
-      }
-
-      const missedDeadline = dt.deadlineTime && !achieved && timeStringNow() >= dt.deadlineTime;
-      const deadlineBadge = dt.deadlineTime
-        ? `<span class="badge ${missedDeadline ? 'due-overdue' : ''}">Deadline ${dt.deadlineTime}</span>`
-        : '';
-
-      return `
-        <li class="task-item ${achieved ? 'completed' : ''}" data-id="${dt.id}">
-          ${checkboxHtml}
-          <div class="task-main">
-            <div class="task-title">${escapeHtml(dt.title)}</div>
-            ${progressHtml}
-            <div class="task-meta">
-              <span class="badge">${dt.type === 'bidGoal' ? 'Bid goal' : 'Checklist'}</span>
-              ${deadlineBadge}
-            </div>
-          </div>
-          <div class="task-actions">
-            <button class="small secondary edit-btn">Edit</button>
-            <button class="small danger delete-btn">Delete</button>
-          </div>
-        </li>`;
-    })
-    .join('');
+  list.innerHTML = state.dailyTasks.map(dailyTaskItemHtml).join('');
 }
 
 function setupDailyTaskListEvents() {
@@ -1083,47 +1411,202 @@ function setupDailyTaskListEvents() {
   });
 }
 
+/* ---------- today's total task management (daily tasks + additional tasks due today, combined) ---------- */
+
+function additionalTasksDueToday() {
+  const todayKey = dayKey(new Date());
+  return state.tasks.filter((t) => t.dueDate && dayKey(new Date(t.dueDate)) === todayKey);
+}
+
+function isAdditionalTaskAchievedToday(t) {
+  return !!t.completed && !!t.completedAt && new Date(t.completedAt).getTime() <= new Date(t.dueDate).getTime();
+}
+
+function todayAdditionalItemHtml(t) {
+  const achieved = isAdditionalTaskAchievedToday(t);
+  const overdue = !t.completed && new Date(t.dueDate).getTime() < Date.now();
+  const classes = ['task-item'];
+  if (t.completed) classes.push('completed');
+  if (overdue) classes.push('overdue');
+  const timeLabel = new Date(t.dueDate).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+  return `
+    <li class="${classes.join(' ')}" data-id="${t.id}">
+      <input type="checkbox" class="task-toggle" ${t.completed ? 'checked' : ''} />
+      <div class="task-main">
+        <div class="task-title">${escapeHtml(t.title)}</div>
+        <div class="task-meta">
+          <span class="badge ${overdue ? 'due-overdue' : ''}">By ${timeLabel}</span>
+          ${achieved ? '<span class="badge status-won">Achieved</span>' : ''}
+        </div>
+      </div>
+      <div class="task-actions">
+        <button class="small secondary edit-btn">Edit</button>
+        <button class="small danger delete-btn">Delete</button>
+      </div>
+    </li>`;
+}
+
+function renderTodayDailyList() {
+  const list = document.getElementById('today-daily-list');
+  const empty = document.getElementById('today-daily-empty');
+  if (state.dailyTasks.length === 0) {
+    list.innerHTML = '';
+    empty.classList.remove('hidden');
+    return;
+  }
+  empty.classList.add('hidden');
+  list.innerHTML = state.dailyTasks.map(dailyTaskItemHtml).join('');
+}
+
+function renderTodayAdditionalList() {
+  const list = document.getElementById('today-additional-list');
+  const empty = document.getElementById('today-additional-empty');
+  const items = additionalTasksDueToday();
+  if (items.length === 0) {
+    list.innerHTML = '';
+    empty.classList.remove('hidden');
+    return;
+  }
+  empty.classList.add('hidden');
+  list.innerHTML = items.map(todayAdditionalItemHtml).join('');
+}
+
+/* Combined today percentage is an average of two block percentages — daily tasks'
+   own average and additional tasks' completion rate — not a flat per-item average.
+   That keeps daily tasks' weight high even when there are many more additional
+   tasks due today than daily tasks. */
+function computeTodayTotalPercent() {
+  const todayKey = dayKey(new Date());
+  const daily = computeDailyAveragePercent(todayKey);
+
+  const additionalDue = additionalTasksDueToday();
+  const additionalAchieved = additionalDue.filter(isAdditionalTaskAchievedToday).length;
+  const additionalPercent = additionalDue.length > 0 ? (additionalAchieved / additionalDue.length) * 100 : null;
+
+  const parts = [];
+  if (daily.due > 0) parts.push(daily.percent);
+  if (additionalPercent !== null) parts.push(additionalPercent);
+  const overall = parts.length > 0 ? parts.reduce((a, b) => a + b, 0) / parts.length : 0;
+
+  return {
+    overall,
+    dailyPercent: daily.due > 0 ? daily.percent : null,
+    additionalPercent,
+  };
+}
+
+function renderTodayTotalTaskManagement() {
+  renderTodayDailyList();
+  renderTodayAdditionalList();
+
+  const { overall, dailyPercent, additionalPercent } = computeTodayTotalPercent();
+  document.getElementById('today-total-rate').textContent = `${Math.round(overall)}%`;
+  document.getElementById('today-daily-rate').textContent = dailyPercent === null ? '—' : `${Math.round(dailyPercent)}%`;
+  document.getElementById('today-additional-rate').textContent =
+    additionalPercent === null ? '—' : `${Math.round(additionalPercent)}%`;
+}
+
+function setupTodayTaskListEvents() {
+  document.getElementById('today-daily-list').addEventListener('click', (e) => {
+    const li = e.target.closest('.task-item');
+    if (!li) return;
+    const id = li.dataset.id;
+    if (e.target.classList.contains('daily-toggle')) {
+      toggleDailyCompletion(id);
+    } else if (e.target.classList.contains('edit-btn')) {
+      goToSubTab('tasks', 'daily');
+      beginEditDailyTask(id);
+    } else if (e.target.classList.contains('delete-btn')) {
+      if (confirm('Delete this daily task?')) deleteDailyTask(id);
+    }
+  });
+
+  document.getElementById('today-additional-list').addEventListener('click', (e) => {
+    const li = e.target.closest('.task-item');
+    if (!li) return;
+    const id = li.dataset.id;
+    if (e.target.classList.contains('task-toggle')) {
+      toggleTaskComplete(id);
+    } else if (e.target.classList.contains('edit-btn')) {
+      goToSubTab('tasks', 'additional');
+      beginEditTask(id);
+    } else if (e.target.classList.contains('delete-btn')) {
+      if (confirm('Delete this task? This cannot be undone.')) deleteTask(id);
+    }
+  });
+}
+
 /* ---------- achievements ---------- */
 
-let achievementRange = 'daily';
+let achvRangeFrom = dayKey(new Date());
+let achvRangeTo = dayKey(new Date());
+
+const achvCalendar = createCalendarWidget({
+  prevBtnId: 'achv-cal-prev-btn',
+  nextBtnId: 'achv-cal-next-btn',
+  monthLabelId: 'achv-cal-month-label',
+  gridId: 'achv-calendar-grid',
+  rangeLabelId: 'achv-calendar-range-label',
+  getFrom: () => achvRangeFrom,
+  getTo: () => achvRangeTo,
+  setRange: (from, to) => {
+    achvRangeFrom = from;
+    achvRangeTo = to;
+  },
+  clearPreset: () => clearActiveAchvPreset(),
+  onChange: () => renderAchievementView(),
+});
+
+function clearActiveAchvPreset() {
+  document.querySelectorAll('.achv-range-btn').forEach((b) => b.classList.remove('active'));
+}
+
+function applyAchievementPreset(preset) {
+  const range = computePresetRange(preset, new Date());
+  achvRangeFrom = range.from;
+  achvRangeTo = range.to;
+
+  achvCalendar.goToMonth(achvRangeFrom);
+  achvCalendar.render();
+  renderAchievementView();
+}
 
 function setupAchievements() {
   document.querySelectorAll('.achv-range-btn').forEach((btn) => {
     btn.addEventListener('click', () => {
-      document.querySelectorAll('.achv-range-btn').forEach((b) => b.classList.remove('active'));
+      clearActiveAchvPreset();
       btn.classList.add('active');
-      achievementRange = btn.dataset.range;
-      document.getElementById('achievement-custom-dates').classList.toggle('hidden', achievementRange !== 'custom');
-      if (achievementRange !== 'custom') renderAchievements();
+      applyAchievementPreset(btn.dataset.preset);
     });
   });
-
-  document.getElementById('achv-calc-btn').addEventListener('click', renderAchievements);
-
-  const today = dayKey(new Date());
-  document.getElementById('achv-from').value = today;
-  document.getElementById('achv-to').value = today;
 }
 
+function setupAchievementCalendar() {
+  achvCalendar.setup();
+}
+
+/* Achievement rate over a range = average of each day's averaged daily-task
+   percentage (an average of averages), consistent with the per-day methodology
+   used everywhere else — not a binary achieved/due count. */
 function computeAchievement(fromKey, toKey) {
-  let due = 0;
-  let achieved = 0;
   const cursor = new Date(`${fromKey}T00:00:00`);
   const end = new Date(`${toKey}T00:00:00`);
+  let percentSum = 0;
+  let dayCount = 0;
+  let totalDue = 0;
 
   while (cursor <= end) {
-    const key = dayKey(cursor);
-    const dayEnd = endOfDay(cursor).getTime();
-    state.dailyTasks.forEach((dt) => {
-      if (new Date(dt.createdAt).getTime() <= dayEnd) {
-        due += 1;
-        if (isDailyTaskAchieved(dt, key)) achieved += 1;
-      }
-    });
+    const { percent, due } = computeDailyAveragePercent(dayKey(cursor));
+    if (due > 0) {
+      percentSum += percent;
+      dayCount += 1;
+      totalDue += due;
+    }
     cursor.setDate(cursor.getDate() + 1);
   }
 
-  const rate = due > 0 ? Math.round((achieved / due) * 100) : 0;
+  const rate = dayCount > 0 ? Math.round(percentSum / dayCount) : 0;
 
   const fromTime = new Date(`${fromKey}T00:00:00`).getTime();
   const toTime = endOfDay(new Date(`${toKey}T00:00:00`)).getTime();
@@ -1133,39 +1616,83 @@ function computeAchievement(fromKey, toKey) {
     return ct >= fromTime && ct <= toTime;
   }).length;
 
-  return { due, achieved, rate, additionalCompleted };
+  return { due: totalDue, rate, additionalCompleted };
 }
 
-function renderAchievements() {
-  renderDailyTasks();
+function computeAchievementDailyPoints(fromKey, toKey) {
+  const points = [];
+  const cursor = new Date(`${fromKey}T00:00:00`);
+  const end = new Date(`${toKey}T00:00:00`);
 
-  const today = new Date();
-  const todayKey = dayKey(today);
-  let fromKey = todayKey;
-  let toKey = todayKey;
-
-  if (achievementRange === 'weekly') {
-    fromKey = dayKey(new Date(today.getTime() - 6 * 24 * 3600 * 1000));
-  } else if (achievementRange === 'yearly') {
-    fromKey = dayKey(new Date(today.getTime() - 364 * 24 * 3600 * 1000));
-  } else if (achievementRange === 'custom') {
-    fromKey = document.getElementById('achv-from').value || todayKey;
-    toKey = document.getElementById('achv-to').value || todayKey;
-    if (fromKey > toKey) {
-      const tmp = fromKey;
-      fromKey = toKey;
-      toKey = tmp;
-    }
+  while (cursor <= end) {
+    const { percent } = computeDailyAveragePercent(dayKey(cursor));
+    points.push({ label: cursor.toLocaleDateString([], { month: 'short', day: 'numeric' }), value: Math.round(percent) });
+    cursor.setDate(cursor.getDate() + 1);
   }
+  return points;
+}
 
-  const result = computeAchievement(fromKey, toKey);
+function computeGoalReport(fromKey, toKey) {
+  const rangeEnd = new Date(`${toKey}T00:00:00`);
+
+  return state.dailyTasks.map((dt) => {
+    let due = 0;
+    let percentSum = 0;
+    const cursor = new Date(`${fromKey}T00:00:00`);
+    while (cursor <= rangeEnd) {
+      const dayEnd = endOfDay(cursor).getTime();
+      if (new Date(dt.createdAt).getTime() <= dayEnd) {
+        due += 1;
+        percentSum += dailyTaskPercent(dt, dayKey(cursor));
+      }
+      cursor.setDate(cursor.getDate() + 1);
+    }
+    const rate = due > 0 ? Math.round(percentSum / due) : 0;
+    return { dt, due, rate };
+  });
+}
+
+function renderGoalReport() {
+  const rows = computeGoalReport(achvRangeFrom, achvRangeTo);
+  const tbody = document.getElementById('achv-goal-report-body');
+  const empty = document.getElementById('achv-goal-report-empty');
+
+  if (rows.length === 0) {
+    tbody.innerHTML = '';
+    empty.classList.remove('hidden');
+    return;
+  }
+  empty.classList.add('hidden');
+
+  tbody.innerHTML = rows
+    .map(
+      ({ dt, due, rate }) => `
+        <tr>
+          <td>${escapeHtml(dt.title)}</td>
+          <td>${dt.type === 'bidGoal' ? 'Bid goal' : 'Checklist'}</td>
+          <td>${due}</td>
+          <td>${rate}%</td>
+        </tr>`
+    )
+    .join('');
+}
+
+function renderAchievementView() {
+  const result = computeAchievement(achvRangeFrom, achvRangeTo);
   document.getElementById('achv-rate').textContent = `${result.rate}%`;
-  document.getElementById('achv-fraction').textContent = `${result.achieved} / ${result.due}`;
   document.getElementById('achv-additional').textContent = String(result.additionalCompleted);
+
+  const points = computeAchievementDailyPoints(achvRangeFrom, achvRangeTo);
+  document.getElementById('achv-line-chart').innerHTML = buildLineChartSvg(points, (v) => `${v}%`, 100);
+
+  renderGoalReport();
 }
 
 function refreshTasksExtras() {
-  renderAchievements();
+  renderDailyTasks();
+  achvCalendar.render();
+  renderAchievementView();
+  renderTodayTotalTaskManagement();
 }
 
 /* ---------- platforms ---------- */
@@ -1208,7 +1735,6 @@ function renderPlatforms() {
       (p) => `
         <div class="platform-card" data-id="${p.id}">
           <span class="platform-card-name">${escapeHtml(p.name)}</span>
-          <button type="button" class="small quick-add-btn">+ Add Bid</button>
           <button type="button" class="small danger platform-delete-btn">&times;</button>
         </div>`
     )
@@ -1221,13 +1747,8 @@ function setupPlatformCardEvents() {
     if (!card) return;
     const id = card.dataset.id;
     const platform = state.platforms.find((p) => p.id === id);
-    if (e.target.classList.contains('quick-add-btn') && platform) {
-      resetBidForm();
-      document.getElementById('bid-platform').value = platform.name;
-      document.getElementById('bid-form').scrollIntoView({ behavior: 'smooth' });
-      document.getElementById('bid-company').focus();
-    } else if (e.target.classList.contains('platform-delete-btn')) {
-      if (confirm(`Remove platform "${platform ? platform.name : ''}"? Existing bids keep their recorded platform.`)) {
+    if (e.target.classList.contains('platform-delete-btn')) {
+      if (confirm(`Remove platform "${platform ? platform.name : ''}"? Existing accounts keep their recorded platform.`)) {
         deletePlatform(id);
       }
     }
@@ -1241,31 +1762,131 @@ function populateBidPlatformSelect() {
     '<option value="">Select platform</option>' +
     state.platforms.map((p) => `<option value="${escapeHtml(p.name)}">${escapeHtml(p.name)}</option>`).join('');
   if (state.platforms.some((p) => p.name === prev)) select.value = prev;
-
-  const filterSelect = document.getElementById('bid-filter-platform');
-  const prevFilter = filterSelect.value;
-  filterSelect.innerHTML =
-    '<option value="">All</option>' +
-    state.platforms.map((p) => `<option value="${escapeHtml(p.name)}">${escapeHtml(p.name)}</option>`).join('');
-  if (state.platforms.some((p) => p.name === prevFilter)) filterSelect.value = prevFilter;
 }
 
-/* ---------- bid management ---------- */
+/* ---------- accounts (members you bid as; platform is chosen per-bid, not per-account) ---------- */
 
-function setupBidSubTabs() {
-  document.querySelectorAll('.bid-subtab-btn').forEach((btn) => {
-    btn.addEventListener('click', () => {
-      document.querySelectorAll('.bid-subtab-btn').forEach((b) => b.classList.remove('active'));
-      document.querySelectorAll('.bid-subpanel').forEach((p) => p.classList.remove('active'));
-      btn.classList.add('active');
-      document.getElementById(`bid-sub-${btn.dataset.subtab}`).classList.add('active');
-    });
+function accountLabel(account) {
+  return account.memberName;
+}
+
+function setupAccountForm() {
+  const form = document.getElementById('account-form');
+  form.addEventListener('submit', (e) => {
+    e.preventDefault();
+    const memberName = document.getElementById('account-member').value.trim();
+    if (!memberName) return;
+    const country = document.getElementById('account-country').value.trim();
+    const notes = document.getElementById('account-notes').value.trim();
+    const editingId = document.getElementById('account-editing-id').value;
+
+    if (editingId) {
+      const account = state.accounts.find((a) => a.id === editingId);
+      if (account) {
+        account.memberName = memberName;
+        account.country = country;
+        account.notes = notes;
+      }
+    } else {
+      state.accounts.push({ id: uid(), memberName, country, notes, createdAt: new Date().toISOString() });
+    }
+
+    resetAccountForm();
+    persist();
+    renderAccounts();
+    populateBidAccountSelect();
+  });
+
+  document.getElementById('account-cancel-edit').addEventListener('click', resetAccountForm);
+}
+
+function resetAccountForm() {
+  document.getElementById('account-form').reset();
+  document.getElementById('account-editing-id').value = '';
+  document.getElementById('account-submit-btn').textContent = 'Add Account';
+  document.getElementById('account-cancel-edit').classList.add('hidden');
+}
+
+function beginEditAccount(id) {
+  const account = state.accounts.find((a) => a.id === id);
+  if (!account) return;
+  document.getElementById('account-editing-id').value = account.id;
+  document.getElementById('account-member').value = account.memberName;
+  document.getElementById('account-country').value = account.country || '';
+  document.getElementById('account-notes').value = account.notes || '';
+  document.getElementById('account-submit-btn').textContent = 'Save Changes';
+  document.getElementById('account-cancel-edit').classList.remove('hidden');
+  document.getElementById('account-member').focus();
+}
+
+function deleteAccount(id) {
+  state.accounts = state.accounts.filter((a) => a.id !== id);
+  persist();
+  renderAccounts();
+  populateBidAccountSelect();
+}
+
+function renderAccounts() {
+  const container = document.getElementById('account-cards');
+  const empty = document.getElementById('account-empty');
+  if (state.accounts.length === 0) {
+    container.innerHTML = '';
+    empty.classList.remove('hidden');
+    return;
+  }
+  empty.classList.add('hidden');
+  container.innerHTML = state.accounts
+    .map(
+      (a) => `
+        <div class="platform-card" data-id="${a.id}">
+          <span class="platform-card-name">${escapeHtml(accountLabel(a))}</span>
+          ${a.country ? `<span class="badge">${escapeHtml(a.country)}</span>` : ''}
+          <button type="button" class="small quick-add-btn">+ Add Bid</button>
+          <button type="button" class="small secondary account-edit-btn">Edit</button>
+          <button type="button" class="small danger account-delete-btn">&times;</button>
+        </div>`
+    )
+    .join('');
+}
+
+function setupAccountCardEvents() {
+  document.getElementById('account-cards').addEventListener('click', (e) => {
+    const card = e.target.closest('.platform-card');
+    if (!card) return;
+    const id = card.dataset.id;
+    const account = state.accounts.find((a) => a.id === id);
+    if (e.target.classList.contains('quick-add-btn') && account) {
+      resetBidForm();
+      document.getElementById('bid-account').value = account.id;
+      goToTab('bids');
+      document.getElementById('bid-company').focus();
+    } else if (e.target.classList.contains('account-edit-btn')) {
+      beginEditAccount(id);
+    } else if (e.target.classList.contains('account-delete-btn')) {
+      if (confirm(`Remove account "${account ? accountLabel(account) : ''}"? Existing bids keep their recorded account info.`)) {
+        deleteAccount(id);
+      }
+    }
   });
 }
 
-function goToBidSubTab(name) {
-  document.querySelector(`.bid-subtab-btn[data-subtab="${name}"]`).click();
+function populateBidAccountSelect() {
+  const select = document.getElementById('bid-account');
+  const prev = select.value;
+  select.innerHTML =
+    '<option value="">Select account</option>' +
+    state.accounts.map((a) => `<option value="${a.id}">${escapeHtml(accountLabel(a))}</option>`).join('');
+  if (state.accounts.some((a) => a.id === prev)) select.value = prev;
+
+  const filterSelect = document.getElementById('bid-filter-account');
+  const prevFilter = filterSelect.value;
+  filterSelect.innerHTML =
+    '<option value="">All</option>' +
+    state.accounts.map((a) => `<option value="${a.id}">${escapeHtml(accountLabel(a))}</option>`).join('');
+  if (state.accounts.some((a) => a.id === prevFilter)) filterSelect.value = prevFilter;
 }
+
+/* ---------- bid management ---------- */
 
 function setupBidForm() {
   const form = document.getElementById('bid-form');
@@ -1273,7 +1894,9 @@ function setupBidForm() {
     e.preventDefault();
     const company = document.getElementById('bid-company').value.trim();
     if (!company) return;
-    const platform = document.getElementById('bid-platform').value;
+    const accountId = document.getElementById('bid-account').value || null;
+    const account = accountId ? state.accounts.find((a) => a.id === accountId) : null;
+    const platform = document.getElementById('bid-platform').value || null;
     let link = document.getElementById('bid-link').value.trim();
     if (link && !/^https?:\/\//i.test(link)) link = 'https://' + link;
     const editingId = document.getElementById('bid-editing-id').value;
@@ -1282,7 +1905,9 @@ function setupBidForm() {
       const bid = state.bids.find((b) => b.id === editingId);
       if (bid) {
         bid.company = company;
+        bid.accountId = accountId;
         bid.platform = platform;
+        bid.memberName = account ? account.memberName : null;
         bid.link = link;
       }
     } else {
@@ -1290,7 +1915,9 @@ function setupBidForm() {
       state.bids.push({
         id: uid(),
         company,
+        accountId,
         platform,
+        memberName: account ? account.memberName : null,
         link,
         approved: false,
         date: dayKey(now),
@@ -1305,12 +1932,13 @@ function setupBidForm() {
   });
 
   document.getElementById('bid-cancel-edit').addEventListener('click', resetBidForm);
-  document.getElementById('bid-filter-platform').addEventListener('change', renderBidList);
+  document.getElementById('bid-filter-account').addEventListener('change', renderBidList);
   document.getElementById('bid-filter-status').addEventListener('change', renderBidList);
 }
 
 function resetBidForm() {
-  document.getElementById('bid-form').reset();
+  document.getElementById('bid-company').value = '';
+  document.getElementById('bid-link').value = '';
   document.getElementById('bid-editing-id').value = '';
   document.getElementById('bid-submit-btn').textContent = 'Record Bid';
   document.getElementById('bid-cancel-edit').classList.add('hidden');
@@ -1319,9 +1947,10 @@ function resetBidForm() {
 function beginEditBid(id) {
   const bid = state.bids.find((b) => b.id === id);
   if (!bid) return;
-  goToBidSubTab('bid');
+  goToTab('bids');
   document.getElementById('bid-editing-id').value = bid.id;
   document.getElementById('bid-company').value = bid.company;
+  document.getElementById('bid-account').value = bid.accountId || '';
   document.getElementById('bid-platform').value = bid.platform || '';
   document.getElementById('bid-link').value = bid.link || '';
   document.getElementById('bid-submit-btn').textContent = 'Save Changes';
@@ -1345,11 +1974,11 @@ function toggleBidApproved(id) {
 }
 
 function sortedFilteredBids() {
-  const platformFilter = document.getElementById('bid-filter-platform').value;
+  const accountFilter = document.getElementById('bid-filter-account').value;
   const statusFilter = document.getElementById('bid-filter-status').value;
 
   let bids = state.bids.slice();
-  if (platformFilter) bids = bids.filter((b) => b.platform === platformFilter);
+  if (accountFilter) bids = bids.filter((b) => b.accountId === accountFilter);
   if (statusFilter === 'approved') bids = bids.filter((b) => b.approved);
   else if (statusFilter === 'pending') bids = bids.filter((b) => !b.approved);
 
@@ -1382,13 +2011,15 @@ function renderBidList() {
       const linkBtn = b.link
         ? `<button type="button" class="small secondary open-link-btn" data-link="${escapeHtml(b.link)}">Open link</button>`
         : '';
+      const accountText = [b.memberName, b.platform].filter(Boolean).join(' — ');
+      const accountBadge = accountText ? `<span class="badge">${escapeHtml(accountText)}</span>` : '';
       return `
         <li class="task-item ${b.approved ? 'completed' : ''}" data-id="${b.id}">
           <input type="checkbox" class="bid-approve-toggle" ${b.approved ? 'checked' : ''} title="Approved" />
           <div class="task-main">
             <div class="task-title">${escapeHtml(b.company)}</div>
             <div class="task-meta">
-              ${b.platform ? `<span class="badge">${escapeHtml(b.platform)}</span>` : ''}
+              ${accountBadge}
               <span class="badge ${b.approved ? 'status-won' : ''}">${b.approved ? 'Approved' : 'Pending'}</span>
               <span class="badge">${timeLabel}</span>
             </div>
@@ -1418,10 +2049,17 @@ function renderTodayBidHint() {
 
 function renderBids() {
   renderPlatforms();
+  renderAccounts();
   populateBidPlatformSelect();
+  populateBidAccountSelect();
   renderBidStats();
   renderBidList();
   renderTodayBidHint();
+  populateBidGoalScopeRefSelect();
+  renderBidGoalCards();
+  document.getElementById('goal-summary-time').value = state.settings.dailySummaryTime || '';
+  goalHistCalendar.render();
+  renderGoalHistory();
 }
 
 function setupBidListEvents() {
@@ -1443,6 +2081,797 @@ function setupBidListEvents() {
   });
 }
 
+/* ---------- daily bid plan (bidGoal daily tasks, surfaced within Bid Management) ---------- */
+
+function bidGoalsList() {
+  return state.dailyTasks.filter((d) => d.type === 'bidGoal');
+}
+
+function goalScopeLabel(dt) {
+  const scope = dt.scope || { type: 'overall' };
+  if (scope.type === 'account') {
+    const account = state.accounts.find((a) => a.id === scope.refId);
+    return account ? accountLabel(account) : 'Account (removed)';
+  }
+  if (scope.type === 'platform') return scope.refId || 'Platform';
+  return 'Overall';
+}
+
+function goalCardState(dt, count) {
+  const target = dt.targetCount || 1;
+  if (count >= target) return 'green';
+  if (count > 0) return 'amber';
+  return 'red';
+}
+
+function populateBidGoalScopeRefSelect() {
+  const typeSelect = document.getElementById('bid-goal-scope-type');
+  const refSelect = document.getElementById('bid-goal-scope-ref');
+  const refField = document.querySelector('.bid-goal-scope-ref-field');
+  const type = typeSelect.value;
+  refField.classList.toggle('hidden', type === 'overall');
+
+  const prev = refSelect.value;
+  if (type === 'account') {
+    refSelect.innerHTML = state.accounts.map((a) => `<option value="${a.id}">${escapeHtml(accountLabel(a))}</option>`).join('');
+  } else if (type === 'platform') {
+    refSelect.innerHTML = state.platforms.map((p) => `<option value="${escapeHtml(p.name)}">${escapeHtml(p.name)}</option>`).join('');
+  } else {
+    refSelect.innerHTML = '';
+  }
+  if ([...refSelect.options].some((o) => o.value === prev)) refSelect.value = prev;
+}
+
+function setupBidGoalForm() {
+  const form = document.getElementById('bid-goal-form');
+
+  document.getElementById('bid-goal-scope-type').addEventListener('change', populateBidGoalScopeRefSelect);
+
+  form.addEventListener('submit', (e) => {
+    e.preventDefault();
+    const title = document.getElementById('bid-goal-title').value.trim();
+    if (!title) return;
+    const targetCount = clampInt(document.getElementById('bid-goal-target').value, 1, 999, 1);
+    const deadlineTime = document.getElementById('bid-goal-deadline').value || null;
+    const scopeType = document.getElementById('bid-goal-scope-type').value;
+    const scopeRef = document.getElementById('bid-goal-scope-ref').value;
+    const scope = scopeType === 'overall' || !scopeRef ? { type: 'overall' } : { type: scopeType, refId: scopeRef };
+    const editingId = document.getElementById('bid-goal-editing-id').value;
+
+    if (editingId) {
+      const dt = state.dailyTasks.find((d) => d.id === editingId);
+      if (dt) {
+        dt.title = title;
+        dt.targetCount = targetCount;
+        dt.deadlineTime = deadlineTime;
+        dt.scope = scope;
+      }
+    } else {
+      state.dailyTasks.push({
+        id: uid(),
+        title,
+        type: 'bidGoal',
+        targetCount,
+        deadlineTime,
+        scope,
+        createdAt: new Date().toISOString(),
+        completions: {},
+        notifiedDates: [],
+      });
+    }
+
+    resetBidGoalForm();
+    persist();
+    renderBidGoalCards();
+    refreshTasksExtras();
+  });
+
+  document.getElementById('bid-goal-cancel-edit').addEventListener('click', resetBidGoalForm);
+}
+
+function resetBidGoalForm() {
+  document.getElementById('bid-goal-form').reset();
+  document.getElementById('bid-goal-editing-id').value = '';
+  document.getElementById('bid-goal-scope-type').value = 'overall';
+  populateBidGoalScopeRefSelect();
+  document.getElementById('bid-goal-submit-btn').textContent = 'Add Goal';
+  document.getElementById('bid-goal-cancel-edit').classList.add('hidden');
+}
+
+function beginEditBidGoal(id) {
+  const dt = state.dailyTasks.find((d) => d.id === id);
+  if (!dt) return;
+  const scope = dt.scope || { type: 'overall' };
+  document.getElementById('bid-goal-editing-id').value = dt.id;
+  document.getElementById('bid-goal-title').value = dt.title;
+  document.getElementById('bid-goal-target').value = dt.targetCount || '';
+  document.getElementById('bid-goal-deadline').value = dt.deadlineTime || '';
+  document.getElementById('bid-goal-scope-type').value = scope.type;
+  populateBidGoalScopeRefSelect();
+  document.getElementById('bid-goal-scope-ref').value = scope.refId || '';
+  document.getElementById('bid-goal-submit-btn').textContent = 'Save Changes';
+  document.getElementById('bid-goal-cancel-edit').classList.remove('hidden');
+  document.getElementById('bid-goal-title').focus();
+}
+
+function renderBidGoalCards() {
+  const container = document.getElementById('bid-goal-cards');
+  const empty = document.getElementById('bid-goal-empty');
+  const goals = bidGoalsList();
+
+  if (goals.length === 0) {
+    container.innerHTML = '';
+    empty.classList.remove('hidden');
+    return;
+  }
+  empty.classList.add('hidden');
+
+  const today = dayKey(new Date());
+  container.innerHTML = goals
+    .map((dt) => {
+      const count = bidCountForGoal(dt, today);
+      const exactPct = dailyTaskPercent(dt, today);
+      const cardState = goalCardState(dt, count);
+      const missedDeadline = dt.deadlineTime && count < (dt.targetCount || 0) && timeStringNow() >= dt.deadlineTime;
+      const deadlineBadge = dt.deadlineTime
+        ? `<span class="badge ${missedDeadline ? 'due-overdue' : ''}">Deadline ${dt.deadlineTime}</span>`
+        : '';
+      return `
+        <div class="goal-card state-${cardState}" data-id="${dt.id}">
+          <div class="goal-card-title">${escapeHtml(dt.title)}</div>
+          <span class="badge">${escapeHtml(goalScopeLabel(dt))}</span>
+          <div class="goal-card-fraction state-${cardState}">${Math.round(exactPct)}%</div>
+          <div class="goal-card-meta"><span class="badge">${count} / ${dt.targetCount} bids today</span>${deadlineBadge}</div>
+          <div class="goal-card-actions">
+            <button type="button" class="small secondary edit-btn">Edit</button>
+            <button type="button" class="small danger delete-btn">Delete</button>
+          </div>
+        </div>`;
+    })
+    .join('');
+}
+
+function setupBidGoalListEvents() {
+  const list = document.getElementById('bid-goal-cards');
+  list.addEventListener('click', (e) => {
+    const card = e.target.closest('.goal-card');
+    if (!card) return;
+    const id = card.dataset.id;
+    if (e.target.classList.contains('edit-btn')) {
+      beginEditBidGoal(id);
+    } else if (e.target.classList.contains('delete-btn')) {
+      if (confirm('Delete this daily bid goal?')) {
+        deleteDailyTask(id);
+        renderBidGoalCards();
+      }
+    }
+  });
+}
+
+function setupGoalSummarySetting() {
+  document.getElementById('goal-summary-time').addEventListener('change', (e) => {
+    state.settings.dailySummaryTime = e.target.value || null;
+    persist();
+  });
+}
+
+/* ---------- goal achievement history (Bid Log) ---------- */
+
+let goalHistRangeFrom = dayKey(new Date());
+let goalHistRangeTo = dayKey(new Date());
+
+const goalHistCalendar = createCalendarWidget({
+  prevBtnId: 'goalhist-cal-prev-btn',
+  nextBtnId: 'goalhist-cal-next-btn',
+  monthLabelId: 'goalhist-cal-month-label',
+  gridId: 'goalhist-calendar-grid',
+  rangeLabelId: 'goalhist-calendar-range-label',
+  getFrom: () => goalHistRangeFrom,
+  getTo: () => goalHistRangeTo,
+  setRange: (from, to) => {
+    goalHistRangeFrom = from;
+    goalHistRangeTo = to;
+  },
+  clearPreset: () => clearActiveGoalHistPreset(),
+  onChange: () => renderGoalHistory(),
+});
+
+function clearActiveGoalHistPreset() {
+  document.querySelectorAll('.goalhist-range-btn').forEach((b) => b.classList.remove('active'));
+}
+
+function applyGoalHistPreset(preset) {
+  const range = computePresetRange(preset, new Date());
+  goalHistRangeFrom = range.from;
+  goalHistRangeTo = range.to;
+
+  goalHistCalendar.goToMonth(goalHistRangeFrom);
+  goalHistCalendar.render();
+  renderGoalHistory();
+}
+
+function setupGoalHistRangeTabs() {
+  document.querySelectorAll('.goalhist-range-btn').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      clearActiveGoalHistPreset();
+      btn.classList.add('active');
+      applyGoalHistPreset(btn.dataset.preset);
+    });
+  });
+}
+
+function setupGoalHistCalendar() {
+  goalHistCalendar.setup();
+}
+
+function computeBidGoalDailyPoints(fromKey, toKey) {
+  const points = [];
+  const cursor = new Date(`${fromKey}T00:00:00`);
+  const end = new Date(`${toKey}T00:00:00`);
+  const goals = bidGoalsList();
+
+  while (cursor <= end) {
+    const key = dayKey(cursor);
+    const dayEnd = endOfDay(cursor).getTime();
+    const due = goals.filter((dt) => new Date(dt.createdAt).getTime() <= dayEnd);
+    const percent = due.length > 0 ? due.reduce((sum, dt) => sum + dailyTaskPercent(dt, key), 0) / due.length : 0;
+    points.push({ label: cursor.toLocaleDateString([], { month: 'short', day: 'numeric' }), value: Math.round(percent) });
+    cursor.setDate(cursor.getDate() + 1);
+  }
+  return points;
+}
+
+function computeBidGoalReport(fromKey, toKey) {
+  const rangeEnd = new Date(`${toKey}T00:00:00`);
+
+  return bidGoalsList().map((dt) => {
+    let due = 0;
+    let percentSum = 0;
+    const cursor = new Date(`${fromKey}T00:00:00`);
+    while (cursor <= rangeEnd) {
+      const dayEnd = endOfDay(cursor).getTime();
+      if (new Date(dt.createdAt).getTime() <= dayEnd) {
+        due += 1;
+        percentSum += dailyTaskPercent(dt, dayKey(cursor));
+      }
+      cursor.setDate(cursor.getDate() + 1);
+    }
+    const rate = due > 0 ? Math.round(percentSum / due) : 0;
+    return { dt, due, rate };
+  });
+}
+
+function renderGoalHistory() {
+  const points = computeBidGoalDailyPoints(goalHistRangeFrom, goalHistRangeTo);
+  document.getElementById('goalhist-line-chart').innerHTML = buildLineChartSvg(points, (v) => `${v}%`, 100);
+
+  const rows = computeBidGoalReport(goalHistRangeFrom, goalHistRangeTo);
+  const tbody = document.getElementById('goalhist-report-body');
+  const empty = document.getElementById('goalhist-report-empty');
+
+  if (rows.length === 0) {
+    tbody.innerHTML = '';
+    empty.classList.remove('hidden');
+    return;
+  }
+  empty.classList.add('hidden');
+
+  tbody.innerHTML = rows
+    .map(
+      ({ dt, due, rate }) => `
+        <tr>
+          <td>${escapeHtml(dt.title)}</td>
+          <td>${escapeHtml(goalScopeLabel(dt))}</td>
+          <td>${due}</td>
+          <td>${rate}%</td>
+        </tr>`
+    )
+    .join('');
+}
+
+/* ---------- alarms (Windows-10-alarm-style: time + label + repeat days) ---------- */
+
+const WEEKDAY_LABELS = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];
+
+function alarmRepeatLabel(alarm) {
+  if (!alarm.days || alarm.days.length === 0) return 'Once';
+  if (alarm.days.length === 7) return 'Every day';
+  return alarm.days
+    .slice()
+    .sort((a, b) => a - b)
+    .map((d) => WEEKDAY_LABELS[d])
+    .join(', ');
+}
+
+function formatAlarmTime(time) {
+  const [h, m] = time.split(':').map(Number);
+  const period = h >= 12 ? 'PM' : 'AM';
+  const h12 = h % 12 === 0 ? 12 : h % 12;
+  return `${h12}:${pad(m)} ${period}`;
+}
+
+let selectedAlarmDays = [];
+
+function setupAlarmDayPicker() {
+  document.getElementById('alarm-day-picker').addEventListener('click', (e) => {
+    const btn = e.target.closest('.day-toggle');
+    if (!btn) return;
+    const day = Number(btn.dataset.day);
+    btn.classList.toggle('active');
+    if (selectedAlarmDays.includes(day)) {
+      selectedAlarmDays = selectedAlarmDays.filter((d) => d !== day);
+    } else {
+      selectedAlarmDays.push(day);
+    }
+  });
+}
+
+function setupAlarmForm() {
+  const form = document.getElementById('alarm-form');
+  form.addEventListener('submit', (e) => {
+    e.preventDefault();
+    const time = document.getElementById('alarm-time').value;
+    if (!time) return;
+    const label = document.getElementById('alarm-label').value.trim();
+    const editingId = document.getElementById('alarm-editing-id').value;
+    const days = selectedAlarmDays.slice();
+
+    if (editingId) {
+      const alarm = state.alarms.find((a) => a.id === editingId);
+      if (alarm) {
+        alarm.time = time;
+        alarm.label = label;
+        alarm.days = days;
+      }
+    } else {
+      state.alarms.push({ id: uid(), time, label, days, enabled: true, lastFiredKey: null });
+    }
+
+    resetAlarmForm();
+    persist();
+    renderAlarms();
+  });
+
+  document.getElementById('alarm-cancel-edit').addEventListener('click', resetAlarmForm);
+}
+
+function resetAlarmForm() {
+  document.getElementById('alarm-form').reset();
+  document.getElementById('alarm-editing-id').value = '';
+  document.getElementById('alarm-submit-btn').textContent = 'Add Alarm';
+  document.getElementById('alarm-cancel-edit').classList.add('hidden');
+  selectedAlarmDays = [];
+  document.querySelectorAll('.day-toggle').forEach((b) => b.classList.remove('active'));
+}
+
+function beginEditAlarm(id) {
+  const alarm = state.alarms.find((a) => a.id === id);
+  if (!alarm) return;
+  document.getElementById('alarm-editing-id').value = alarm.id;
+  document.getElementById('alarm-time').value = alarm.time;
+  document.getElementById('alarm-label').value = alarm.label || '';
+  selectedAlarmDays = (alarm.days || []).slice();
+  document.querySelectorAll('.day-toggle').forEach((b) => {
+    b.classList.toggle('active', selectedAlarmDays.includes(Number(b.dataset.day)));
+  });
+  document.getElementById('alarm-submit-btn').textContent = 'Save Changes';
+  document.getElementById('alarm-cancel-edit').classList.remove('hidden');
+  document.getElementById('alarm-time').focus();
+}
+
+function deleteAlarm(id) {
+  state.alarms = state.alarms.filter((a) => a.id !== id);
+  persist();
+  renderAlarms();
+}
+
+function toggleAlarmEnabled(id) {
+  const alarm = state.alarms.find((a) => a.id === id);
+  if (!alarm) return;
+  alarm.enabled = !alarm.enabled;
+  persist();
+  renderAlarms();
+}
+
+function renderAlarms() {
+  const container = document.getElementById('alarm-cards');
+  const empty = document.getElementById('alarm-empty');
+  if (state.alarms.length === 0) {
+    container.innerHTML = '';
+    empty.classList.remove('hidden');
+    return;
+  }
+  empty.classList.add('hidden');
+
+  const sorted = state.alarms.slice().sort((a, b) => a.time.localeCompare(b.time));
+  container.innerHTML = sorted
+    .map(
+      (a) => `
+        <div class="alarm-card ${a.enabled ? '' : 'disabled'}" data-id="${a.id}">
+          <div class="alarm-card-top">
+            <div>
+              <div class="alarm-card-time">${formatAlarmTime(a.time)}</div>
+              ${a.label ? `<div class="alarm-card-label">${escapeHtml(a.label)}</div>` : ''}
+            </div>
+            <label class="switch">
+              <input type="checkbox" class="alarm-toggle" ${a.enabled ? 'checked' : ''} />
+              <span class="switch-track"></span>
+            </label>
+          </div>
+          <div class="alarm-card-repeat">${escapeHtml(alarmRepeatLabel(a))}</div>
+          <div class="alarm-card-actions">
+            <button type="button" class="small secondary edit-btn">Edit</button>
+            <button type="button" class="small danger delete-btn">Delete</button>
+          </div>
+        </div>`
+    )
+    .join('');
+}
+
+function setupAlarmCardEvents() {
+  document.getElementById('alarm-cards').addEventListener('click', (e) => {
+    const card = e.target.closest('.alarm-card');
+    if (!card) return;
+    const id = card.dataset.id;
+    if (e.target.classList.contains('alarm-toggle')) {
+      toggleAlarmEnabled(id);
+    } else if (e.target.classList.contains('edit-btn')) {
+      beginEditAlarm(id);
+    } else if (e.target.classList.contains('delete-btn')) {
+      if (confirm('Delete this alarm?')) deleteAlarm(id);
+    }
+  });
+}
+
+function checkAlarms() {
+  const now = new Date();
+  const hhmm = `${pad(now.getHours())}:${pad(now.getMinutes())}`;
+  const todayKey = dayKey(now);
+  const weekday = now.getDay();
+  let changed = false;
+
+  state.alarms.forEach((alarm) => {
+    if (!alarm.enabled) return;
+    if (alarm.time !== hhmm) return;
+    const fireKey = `${todayKey}T${hhmm}`;
+    if (alarm.lastFiredKey === fireKey) return;
+    if (alarm.days && alarm.days.length > 0 && !alarm.days.includes(weekday)) return;
+
+    window.api.notify(alarm.label || 'Alarm', formatAlarmTime(alarm.time));
+    alarm.lastFiredKey = fireKey;
+    if (!alarm.days || alarm.days.length === 0) alarm.enabled = false;
+    changed = true;
+  });
+
+  if (changed) {
+    persist();
+    renderAlarms();
+  }
+}
+
+/* ---------- timer (countdown) ---------- */
+
+let timerRemainingMs = 0;
+let timerIntervalId = null;
+
+function formatHMSDisplay(totalMs) {
+  const totalSeconds = Math.max(0, Math.round(totalMs / 1000));
+  const h = Math.floor(totalSeconds / 3600);
+  const m = Math.floor((totalSeconds % 3600) / 60);
+  const s = totalSeconds % 60;
+  return `${pad(h)}:${pad(m)}:${pad(s)}`;
+}
+
+function renderTimerDisplay() {
+  document.getElementById('timer-display').textContent = formatHMSDisplay(timerRemainingMs);
+}
+
+function tickTimer() {
+  timerRemainingMs -= 250;
+  if (timerRemainingMs <= 0) {
+    timerRemainingMs = 0;
+    renderTimerDisplay();
+    stopTimerInterval();
+    window.api.notify('Timer done', "Time's up.");
+    document.getElementById('timer-start-btn').classList.remove('hidden');
+    document.getElementById('timer-pause-btn').classList.add('hidden');
+    document.getElementById('timer-inputs').classList.remove('hidden');
+    return;
+  }
+  renderTimerDisplay();
+}
+
+function stopTimerInterval() {
+  if (timerIntervalId) {
+    clearInterval(timerIntervalId);
+    timerIntervalId = null;
+  }
+}
+
+function setupTimer() {
+  document.getElementById('timer-start-btn').addEventListener('click', () => {
+    if (timerRemainingMs <= 0) {
+      const h = clampInt(document.getElementById('timer-input-h').value, 0, 23, 0);
+      const m = clampInt(document.getElementById('timer-input-m').value, 0, 59, 0);
+      const s = clampInt(document.getElementById('timer-input-s').value, 0, 59, 0);
+      timerRemainingMs = (h * 3600 + m * 60 + s) * 1000;
+      if (timerRemainingMs <= 0) return;
+    }
+    document.getElementById('timer-inputs').classList.add('hidden');
+    document.getElementById('timer-start-btn').classList.add('hidden');
+    document.getElementById('timer-pause-btn').classList.remove('hidden');
+    stopTimerInterval();
+    timerIntervalId = setInterval(tickTimer, 250);
+  });
+
+  document.getElementById('timer-pause-btn').addEventListener('click', () => {
+    stopTimerInterval();
+    document.getElementById('timer-start-btn').classList.remove('hidden');
+    document.getElementById('timer-pause-btn').classList.add('hidden');
+  });
+
+  document.getElementById('timer-reset-btn').addEventListener('click', () => {
+    stopTimerInterval();
+    timerRemainingMs = 0;
+    renderTimerDisplay();
+    document.getElementById('timer-inputs').classList.remove('hidden');
+    document.getElementById('timer-start-btn').classList.remove('hidden');
+    document.getElementById('timer-pause-btn').classList.add('hidden');
+  });
+}
+
+/* ---------- stopwatch ---------- */
+
+let stopwatchElapsedMs = 0;
+let stopwatchStartTs = null;
+let stopwatchIntervalId = null;
+let stopwatchLaps = [];
+
+function formatStopwatchDisplay(totalMs) {
+  const ms = Math.max(0, totalMs);
+  const totalSeconds = Math.floor(ms / 1000);
+  const h = Math.floor(totalSeconds / 3600);
+  const m = Math.floor((totalSeconds % 3600) / 60);
+  const s = totalSeconds % 60;
+  const tenths = Math.floor((ms % 1000) / 100);
+  return `${pad(h)}:${pad(m)}:${pad(s)}.${tenths}`;
+}
+
+function currentStopwatchElapsed() {
+  return stopwatchStartTs !== null ? stopwatchElapsedMs + (Date.now() - stopwatchStartTs) : stopwatchElapsedMs;
+}
+
+function renderStopwatchDisplay() {
+  document.getElementById('stopwatch-display').textContent = formatStopwatchDisplay(currentStopwatchElapsed());
+}
+
+function renderStopwatchLaps() {
+  document.getElementById('stopwatch-laps').innerHTML = stopwatchLaps
+    .map(
+      (lap, i) => `
+        <li class="task-item">
+          <div class="task-main"><div class="task-title">Lap ${i + 1}</div></div>
+          <div class="task-notes">${formatStopwatchDisplay(lap)}</div>
+        </li>`
+    )
+    .join('');
+}
+
+function setupStopwatch() {
+  document.getElementById('stopwatch-start-btn').addEventListener('click', () => {
+    stopwatchStartTs = Date.now();
+    stopwatchIntervalId = setInterval(renderStopwatchDisplay, 100);
+    document.getElementById('stopwatch-start-btn').classList.add('hidden');
+    document.getElementById('stopwatch-pause-btn').classList.remove('hidden');
+  });
+
+  document.getElementById('stopwatch-pause-btn').addEventListener('click', () => {
+    stopwatchElapsedMs = currentStopwatchElapsed();
+    stopwatchStartTs = null;
+    if (stopwatchIntervalId) {
+      clearInterval(stopwatchIntervalId);
+      stopwatchIntervalId = null;
+    }
+    renderStopwatchDisplay();
+    document.getElementById('stopwatch-start-btn').classList.remove('hidden');
+    document.getElementById('stopwatch-pause-btn').classList.add('hidden');
+  });
+
+  document.getElementById('stopwatch-lap-btn').addEventListener('click', () => {
+    stopwatchLaps.push(currentStopwatchElapsed());
+    renderStopwatchLaps();
+  });
+
+  document.getElementById('stopwatch-reset-btn').addEventListener('click', () => {
+    if (stopwatchIntervalId) {
+      clearInterval(stopwatchIntervalId);
+      stopwatchIntervalId = null;
+    }
+    stopwatchElapsedMs = 0;
+    stopwatchStartTs = null;
+    stopwatchLaps = [];
+    renderStopwatchDisplay();
+    renderStopwatchLaps();
+    document.getElementById('stopwatch-start-btn').classList.remove('hidden');
+    document.getElementById('stopwatch-pause-btn').classList.add('hidden');
+  });
+}
+
+/* ---------- world clock ---------- */
+
+const TIMEZONE_PRESETS = [
+  { tz: 'UTC', label: 'UTC' },
+  { tz: 'America/Los_Angeles', label: 'Los Angeles' },
+  { tz: 'America/Denver', label: 'Denver' },
+  { tz: 'America/Chicago', label: 'Chicago' },
+  { tz: 'America/New_York', label: 'New York' },
+  { tz: 'America/Sao_Paulo', label: 'Sao Paulo' },
+  { tz: 'Europe/London', label: 'London' },
+  { tz: 'Europe/Paris', label: 'Paris' },
+  { tz: 'Europe/Berlin', label: 'Berlin' },
+  { tz: 'Europe/Moscow', label: 'Moscow' },
+  { tz: 'Africa/Cairo', label: 'Cairo' },
+  { tz: 'Asia/Dubai', label: 'Dubai' },
+  { tz: 'Asia/Karachi', label: 'Karachi' },
+  { tz: 'Asia/Kolkata', label: 'Mumbai / New Delhi' },
+  { tz: 'Asia/Dhaka', label: 'Dhaka' },
+  { tz: 'Asia/Bangkok', label: 'Bangkok' },
+  { tz: 'Asia/Singapore', label: 'Singapore' },
+  { tz: 'Asia/Shanghai', label: 'Beijing / Shanghai' },
+  { tz: 'Asia/Tokyo', label: 'Tokyo' },
+  { tz: 'Asia/Seoul', label: 'Seoul' },
+  { tz: 'Australia/Sydney', label: 'Sydney' },
+  { tz: 'Pacific/Auckland', label: 'Auckland' },
+];
+
+function populateWorldClockTzSelect() {
+  const select = document.getElementById('worldclock-tz-select');
+  select.innerHTML = TIMEZONE_PRESETS.map((p) => `<option value="${p.tz}">${escapeHtml(p.label)}</option>`).join('');
+}
+
+function setupWorldClockForm() {
+  document.getElementById('worldclock-form').addEventListener('submit', (e) => {
+    e.preventDefault();
+    const tz = document.getElementById('worldclock-tz-select').value;
+    if (!tz) return;
+    const preset = TIMEZONE_PRESETS.find((p) => p.tz === tz);
+    if (state.worldClocks.some((c) => c.tz === tz)) return;
+    state.worldClocks.push({ id: uid(), tz, label: preset ? preset.label : tz });
+    persist();
+    renderWorldClocks();
+  });
+}
+
+function deleteWorldClock(id) {
+  state.worldClocks = state.worldClocks.filter((c) => c.id !== id);
+  persist();
+  renderWorldClocks();
+}
+
+function setupWorldClockCardEvents() {
+  document.getElementById('worldclock-cards').addEventListener('click', (e) => {
+    const card = e.target.closest('.alarm-card');
+    if (!card) return;
+    if (e.target.classList.contains('delete-btn')) deleteWorldClock(card.dataset.id);
+  });
+}
+
+function renderWorldClocks() {
+  const container = document.getElementById('worldclock-cards');
+  const empty = document.getElementById('worldclock-empty');
+  if (state.worldClocks.length === 0) {
+    container.innerHTML = '';
+    empty.classList.remove('hidden');
+    return;
+  }
+  empty.classList.add('hidden');
+
+  const now = new Date();
+  container.innerHTML = state.worldClocks
+    .map((c) => {
+      let time = '—';
+      let dateLabel = '';
+      try {
+        time = now.toLocaleTimeString([], { timeZone: c.tz, hour: '2-digit', minute: '2-digit', second: '2-digit' });
+        dateLabel = now.toLocaleDateString([], { timeZone: c.tz, weekday: 'short', month: 'short', day: 'numeric' });
+      } catch (err) {
+        /* invalid tz, leave placeholder */
+      }
+      return `
+        <div class="alarm-card" data-id="${c.id}">
+          <div class="alarm-card-top">
+            <div>
+              <div class="alarm-card-time">${time}</div>
+              <div class="worldclock-card-tz">${escapeHtml(c.label)}</div>
+              <div class="worldclock-card-date">${escapeHtml(dateLabel)}</div>
+            </div>
+          </div>
+          <div class="alarm-card-actions">
+            <button type="button" class="small danger delete-btn">Delete</button>
+          </div>
+        </div>`;
+    })
+    .join('');
+}
+
+/* ---------- counter ---------- */
+
+function setupCounterForm() {
+  document.getElementById('counter-form').addEventListener('submit', (e) => {
+    e.preventDefault();
+    const input = document.getElementById('counter-label');
+    const label = input.value.trim();
+    if (!label) return;
+    state.counters.push({ id: uid(), label, count: 0 });
+    persist();
+    renderCounters();
+    input.value = '';
+  });
+}
+
+function adjustCounter(id, delta) {
+  const counter = state.counters.find((c) => c.id === id);
+  if (!counter) return;
+  counter.count += delta;
+  persist();
+  renderCounters();
+}
+
+function resetCounter(id) {
+  const counter = state.counters.find((c) => c.id === id);
+  if (!counter) return;
+  counter.count = 0;
+  persist();
+  renderCounters();
+}
+
+function deleteCounter(id) {
+  state.counters = state.counters.filter((c) => c.id !== id);
+  persist();
+  renderCounters();
+}
+
+function setupCounterCardEvents() {
+  document.getElementById('counter-cards').addEventListener('click', (e) => {
+    const card = e.target.closest('.alarm-card');
+    if (!card) return;
+    const id = card.dataset.id;
+    if (e.target.classList.contains('counter-inc-btn')) adjustCounter(id, 1);
+    else if (e.target.classList.contains('counter-dec-btn')) adjustCounter(id, -1);
+    else if (e.target.classList.contains('counter-reset-btn')) resetCounter(id);
+    else if (e.target.classList.contains('delete-btn')) deleteCounter(id);
+  });
+}
+
+function renderCounters() {
+  const container = document.getElementById('counter-cards');
+  const empty = document.getElementById('counter-empty');
+  if (state.counters.length === 0) {
+    container.innerHTML = '';
+    empty.classList.remove('hidden');
+    return;
+  }
+  empty.classList.add('hidden');
+
+  container.innerHTML = state.counters
+    .map(
+      (c) => `
+        <div class="alarm-card" data-id="${c.id}">
+          <div class="alarm-card-label" style="text-align:center;">${escapeHtml(c.label)}</div>
+          <div class="counter-card-value">${c.count}</div>
+          <div class="counter-card-controls">
+            <button type="button" class="small secondary counter-dec-btn">&minus;</button>
+            <button type="button" class="small secondary counter-reset-btn">Reset</button>
+            <button type="button" class="small counter-inc-btn">+</button>
+          </div>
+          <div class="alarm-card-actions" style="justify-content:center;">
+            <button type="button" class="small danger delete-btn">Delete</button>
+          </div>
+        </div>`
+    )
+    .join('');
+}
+
 /* ---------- init ---------- */
 
 async function init() {
@@ -1453,24 +2882,50 @@ async function init() {
   setupTaskListEvents();
   setupDateNav();
   setupTimelineRowSelection();
-  setupTimeRangeButtons();
+  setupTimelineZoom();
+  setupChartTooltip();
+  setupLogRangeTabs();
+  setupCalendar();
+  setupTimeSettingsForm();
   setupTrackingToggle();
   setupDailyTaskForm();
   setupDailyTaskListEvents();
+  setupTodayTaskListEvents();
   setupAchievements();
-  setupBidSubTabs();
+  setupAchievementCalendar();
   setupPlatformForm();
   setupPlatformCardEvents();
+  setupAccountForm();
+  setupAccountCardEvents();
   setupBidForm();
   setupBidListEvents();
+  setupBidGoalForm();
+  setupBidGoalListEvents();
+  setupGoalSummarySetting();
+  setupGoalHistRangeTabs();
+  setupGoalHistCalendar();
+  setupAlarmDayPicker();
+  setupAlarmForm();
+  setupAlarmCardEvents();
+  setupTimer();
+  setupStopwatch();
+  populateWorldClockTzSelect();
+  setupWorldClockForm();
+  setupWorldClockCardEvents();
+  setupCounterForm();
+  setupCounterCardEvents();
 
-  renderTimelineRuler();
+  renderTimerSettings();
 
   refreshCategoryOptions();
   renderTasks();
-  renderAchievements();
+  refreshTasksExtras();
   renderBids();
   renderTimeSection();
+  renderAlarms();
+  renderWorldClocks();
+  renderCounters();
+  setInterval(renderWorldClocks, 1000);
 
   updateTrackingToggleButton();
   if (state.trackingEnabled) {

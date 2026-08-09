@@ -18,8 +18,16 @@ const defaultData = {
   appLog: [],
   bids: [],
   platforms: [],
+  accounts: [],
+  alarms: [],
+  worldClocks: [],
+  counters: [],
   trackingEnabled: false,
-  settings: {},
+  settings: {
+    trackingIntervalMin: 1,
+    dailySummaryTime: null,
+    dailySummaryNotifiedDate: null,
+  },
 };
 
 function loadData() {
@@ -39,6 +47,16 @@ function loadData() {
 function saveData(data) {
   fs.writeFileSync(dataFilePath(), JSON.stringify(data, null, 2), 'utf-8');
 }
+
+// getSystemIdleState()'s 'locked' classification is not reliably reported on Windows;
+// the lock/unlock events are the mechanism Electron actually guarantees for this.
+let isSessionLocked = false;
+powerMonitor.on('lock-screen', () => {
+  isSessionLocked = true;
+});
+powerMonitor.on('unlock-screen', () => {
+  isSessionLocked = false;
+});
 
 let mainWindow;
 
@@ -87,7 +105,7 @@ ipcMain.handle('notify:show', (event, { title, body }) => {
 });
 
 ipcMain.handle('system:idleState', (event, thresholdSeconds) => ({
-  state: powerMonitor.getSystemIdleState(thresholdSeconds || 60),
+  state: isSessionLocked ? 'locked' : powerMonitor.getSystemIdleState(thresholdSeconds || 60),
   idleSeconds: powerMonitor.getSystemIdleTime(),
 }));
 

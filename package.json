@@ -26,6 +26,7 @@
     }
   },
   "dependencies": {
-    "active-win": "^8.2.1"
+    "active-win": "^8.2.1",
+    "feather-icons": "^4.29.2"
   }
 }
