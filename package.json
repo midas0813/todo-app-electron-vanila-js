@@ -1,0 +1,28 @@
+{
+  "name": "time-management-app",
+  "version": "1.0.0",
+  "description": "A desktop time management app with tasks, pomodoro timer, time tracking, stats and reminders",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder"
+  },
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "electron": "^31.0.0",
+    "electron-builder": "^24.13.3"
+  },
+  "build": {
+    "appId": "com.example.timemanagementapp",
+    "productName": "Time Management",
+    "files": [
+      "main.js",
+      "preload.js",
+      "renderer/**/*"
+    ],
+    "win": {
+      "target": "nsis"
+    }
+  }
+}

@@ -1,0 +1,311 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self';" />
+<title>Time Management</title>
+<link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="app">
+    <nav class="sidebar" id="sidebar">
+      <div class="sidebar-brand">
+        <span class="brand-mark">T</span>
+        <span class="brand-text">Time Mgmt</span>
+      </div>
+      <button class="nav-item active" data-tab="time" title="Time">
+        <span class="nav-icon">&#9201;</span>
+        <span class="nav-label">Time</span>
+      </button>
+      <button class="nav-item" data-tab="tasks" title="Tasks">
+        <span class="nav-icon">&#10003;</span>
+        <span class="nav-label">Tasks</span>
+      </button>
+      <button class="nav-item" data-tab="bids" title="Bid Management">
+        <span class="nav-icon">&#128188;</span>
+        <span class="nav-label">Bid Management</span>
+      </button>
+      <button class="sidebar-pin" id="sidebar-pin" title="Pin sidebar open">&#187;</button>
+    </nav>
+
+    <main class="content">
+      <!-- TIME TAB -->
+      <section id="tab-time" class="tab-panel active">
+        <div class="time-layout">
+          <div class="time-col-main">
+            <div class="status-row">
+              <span class="status-pill" id="status-pill"><span class="status-dot"></span><span id="status-text">Off</span></span>
+              <span class="status-hint" id="status-hint"></span>
+            </div>
+
+            <div class="timer-wrap">
+              <div class="timer-display" id="tracker-display">00:00:00</div>
+
+              <label class="field timer-task-select">
+                <span>Task (optional)</span>
+                <select id="tracker-task"></select>
+              </label>
+
+              <div class="timer-controls">
+                <button id="tracker-toggle-btn">Start Tracking</button>
+              </div>
+            </div>
+
+            <div class="timeline-wrap">
+              <div class="timeline-header">
+                <h3>Today's activity</h3>
+                <div class="timeline-legend">
+                  <span><i class="dot dot-active"></i>Active</span>
+                  <span><i class="dot dot-idle"></i>Idle</span>
+                  <span><i class="dot dot-locked"></i>Locked</span>
+                  <span><i class="dot dot-empty"></i>Untracked</span>
+                </div>
+              </div>
+              <div id="timeline" class="timeline"></div>
+              <div class="timeline-ruler" id="timeline-ruler"></div>
+            </div>
+          </div>
+
+          <div class="time-col-side">
+            <div class="stats-cards vertical">
+              <div class="stat-card">
+                <div class="stat-value" id="stat-active-today">0m</div>
+                <div class="stat-label">Active PC time today (auto)</div>
+              </div>
+              <div class="stat-card">
+                <div class="stat-value" id="stat-today">0m</div>
+                <div class="stat-label">Tracked today</div>
+              </div>
+              <div class="stat-card">
+                <div class="stat-value" id="stat-week">0m</div>
+                <div class="stat-label">Tracked this week</div>
+              </div>
+              <div class="stat-card">
+                <div class="stat-value" id="stat-completed">0</div>
+                <div class="stat-label">Tasks completed this week</div>
+              </div>
+            </div>
+
+            <div class="chart-wrap">
+              <h3>Today by hour</h3>
+              <div id="chart-daily" class="chart"></div>
+            </div>
+
+            <div class="chart-wrap">
+              <h3>Last 7 days</h3>
+              <div id="chart-weekly" class="chart"></div>
+            </div>
+
+            <details class="timer-settings">
+              <summary>Time tracking settings</summary>
+              <div class="settings-grid">
+                <label class="field">
+                  <span>Idle after (min)</span>
+                  <input type="number" id="setting-idle" min="1" max="60" />
+                </label>
+              </div>
+            </details>
+          </div>
+        </div>
+      </section>
+
+      <!-- TASKS TAB -->
+      <section id="tab-tasks" class="tab-panel">
+        <div class="section-block">
+          <h2 class="section-heading">Daily Tasks <span class="section-sub">resets every day</span></h2>
+
+          <form id="daily-task-form" class="task-form">
+            <input type="hidden" id="daily-editing-id" />
+            <div class="form-row">
+              <input type="text" id="daily-title" placeholder="Daily task title" required maxlength="200" />
+              <label class="field">
+                <span>Type</span>
+                <select id="daily-type">
+                  <option value="manual">Checklist</option>
+                  <option value="bidGoal">Bid goal (auto)</option>
+                </select>
+              </label>
+              <label class="field daily-target-field hidden">
+                <span>Target bids/day</span>
+                <input type="number" id="daily-target" min="1" max="999" />
+              </label>
+              <label class="field">
+                <span>Deadline (optional)</span>
+                <input type="time" id="daily-deadline" />
+              </label>
+              <button type="submit" id="daily-submit-btn">Add Daily Task</button>
+              <button type="button" id="daily-cancel-edit" class="secondary hidden">Cancel</button>
+            </div>
+          </form>
+
+          <ul id="daily-task-list" class="task-list"></ul>
+          <p id="daily-task-empty" class="empty-state hidden">No daily tasks yet. Add one above.</p>
+        </div>
+
+        <div class="section-block">
+          <h2 class="section-heading">Achievements</h2>
+          <div class="achievement-controls">
+            <button type="button" class="small secondary achv-range-btn active" data-range="daily">Daily</button>
+            <button type="button" class="small secondary achv-range-btn" data-range="weekly">Weekly</button>
+            <button type="button" class="small secondary achv-range-btn" data-range="yearly">Yearly</button>
+            <button type="button" class="small secondary achv-range-btn" data-range="custom">Custom</button>
+            <span class="achievement-custom-dates hidden" id="achievement-custom-dates">
+              <input type="date" id="achv-from" />
+              <span>to</span>
+              <input type="date" id="achv-to" />
+              <button type="button" class="small" id="achv-calc-btn">Calculate</button>
+            </span>
+          </div>
+          <div class="stats-cards">
+            <div class="stat-card">
+              <div class="stat-value" id="achv-rate">0%</div>
+              <div class="stat-label">Daily task achievement</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-value" id="achv-fraction">0 / 0</div>
+              <div class="stat-label">Achieved / due</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-value" id="achv-additional">0</div>
+              <div class="stat-label">Additional tasks completed</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="section-block">
+          <h2 class="section-heading">Additional Tasks</h2>
+
+          <form id="task-form" class="task-form">
+            <input type="hidden" id="task-editing-id" />
+            <div class="form-row">
+              <input type="text" id="task-title" placeholder="Task title" required maxlength="200" />
+              <button type="submit" id="task-submit-btn">Add Task</button>
+              <button type="button" id="task-cancel-edit" class="secondary hidden">Cancel</button>
+            </div>
+            <div class="form-row">
+              <input type="text" id="task-notes" placeholder="Notes (optional)" maxlength="1000" />
+            </div>
+            <div class="form-row">
+              <label class="field">
+                <span>Due</span>
+                <input type="datetime-local" id="task-due" />
+              </label>
+              <label class="field">
+                <span>Priority</span>
+                <select id="task-priority">
+                  <option value="low">Low</option>
+                  <option value="medium" selected>Medium</option>
+                  <option value="high">High</option>
+                </select>
+              </label>
+              <label class="field">
+                <span>Category</span>
+                <input type="text" id="task-category" list="category-list" placeholder="e.g. Work" maxlength="60" />
+                <datalist id="category-list"></datalist>
+              </label>
+            </div>
+          </form>
+
+          <div class="filters">
+            <label class="field">
+              <span>Category</span>
+              <select id="filter-category">
+                <option value="">All</option>
+              </select>
+            </label>
+            <label class="checkbox-field">
+              <input type="checkbox" id="filter-show-completed" />
+              <span>Show completed</span>
+            </label>
+            <div class="filter-spacer"></div>
+            <div class="task-count" id="task-count"></div>
+          </div>
+
+          <ul id="task-list" class="task-list"></ul>
+          <p id="task-empty" class="empty-state hidden">No tasks yet. Add one above.</p>
+        </div>
+      </section>
+
+      <!-- BID MANAGEMENT TAB -->
+      <section id="tab-bids" class="tab-panel">
+        <div class="subtabs">
+          <button type="button" class="subtab-btn bid-subtab-btn active" data-subtab="bid">Bid</button>
+          <button type="button" class="subtab-btn bid-subtab-btn" data-subtab="log">Bid Log</button>
+        </div>
+
+        <!-- BID (quick record) -->
+        <div id="bid-sub-bid" class="bid-subpanel active">
+          <div class="section-block">
+            <h2 class="section-heading">Platforms</h2>
+            <form id="platform-form" class="inline-form">
+              <input type="text" id="platform-name" placeholder="Add a platform (e.g. Upwork)" maxlength="80" required />
+              <button type="submit">Add Platform</button>
+            </form>
+            <div id="platform-cards" class="platform-cards"></div>
+            <p id="platform-empty" class="empty-state hidden">No platforms registered yet.</p>
+          </div>
+
+          <form id="bid-form" class="task-form">
+            <input type="hidden" id="bid-editing-id" />
+            <div class="form-row">
+              <input type="text" id="bid-company" placeholder="Company" required maxlength="200" />
+              <label class="field">
+                <span>Platform</span>
+                <select id="bid-platform">
+                  <option value="">Select platform</option>
+                </select>
+              </label>
+              <input type="url" id="bid-link" placeholder="Bid link (https://...)" maxlength="500" />
+            </div>
+            <div class="form-row">
+              <span class="field"><span>Bid time</span><span class="system-time-hint">system time, set automatically</span></span>
+              <button type="submit" id="bid-submit-btn">Record Bid</button>
+              <button type="button" id="bid-cancel-edit" class="secondary hidden">Cancel</button>
+            </div>
+          </form>
+
+          <p class="today-bid-hint" id="today-bid-hint"></p>
+        </div>
+
+        <!-- BID LOG (history) -->
+        <div id="bid-sub-log" class="bid-subpanel">
+          <div class="stats-cards">
+            <div class="stat-card">
+              <div class="stat-value" id="bid-stat-count">0</div>
+              <div class="stat-label">Positions applied</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-value" id="bid-stat-approved">0</div>
+              <div class="stat-label">Approved</div>
+            </div>
+          </div>
+
+          <div class="filters">
+            <label class="field">
+              <span>Platform</span>
+              <select id="bid-filter-platform">
+                <option value="">All</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>Status</span>
+              <select id="bid-filter-status">
+                <option value="">All</option>
+                <option value="pending">Pending</option>
+                <option value="approved">Approved</option>
+              </select>
+            </label>
+            <div class="filter-spacer"></div>
+            <div class="task-count" id="bid-count"></div>
+          </div>
+
+          <ul id="bid-list" class="task-list"></ul>
+          <p id="bid-empty" class="empty-state hidden">No bids logged yet.</p>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
