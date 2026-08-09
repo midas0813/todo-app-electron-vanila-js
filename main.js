@@ -1,6 +1,8 @@
-const { app, BrowserWindow, ipcMain, Notification, powerMonitor, shell } = require('electron');
+const { app, BrowserWindow, ipcMain, Notification, powerMonitor, shell, Tray, Menu, nativeImage } = require('electron');
 const path = require('path');
 const fs = require('fs');
+
+const iconPath = path.join(__dirname, 'build', 'icon.ico');
 
 let activeWin;
 try {
@@ -60,6 +62,8 @@ powerMonitor.on('unlock-screen', () => {
 });
 
 let mainWindow;
+let tray;
+app.isQuitting = false;
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -68,6 +72,7 @@ function createWindow() {
     minWidth: 780,
     minHeight: 560,
     backgroundColor: '#14161c',
+    icon: iconPath,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -78,17 +83,58 @@ function createWindow() {
 
   mainWindow.setMenuBarVisibility(false);
   mainWindow.loadFile(path.join(__dirname, 'renderer', 'index.html'));
+
+  // Closing the window hides it instead of quitting — tracking (and the tray
+  // icon) keeps running in the background. Only the tray's "Quit" truly exits.
+  mainWindow.on('close', (event) => {
+    if (app.isQuitting) return;
+    event.preventDefault();
+    mainWindow.hide();
+  });
+}
+
+function showMainWindow() {
+  if (!mainWindow) return;
+  if (mainWindow.isMinimized()) mainWindow.restore();
+  mainWindow.show();
+  mainWindow.focus();
+}
+
+function createTray() {
+  tray = new Tray(nativeImage.createFromPath(iconPath));
+  tray.setToolTip('Time Management');
+  tray.setContextMenu(
+    Menu.buildFromTemplate([
+      { label: 'Show Time Mgmt', click: showMainWindow },
+      { type: 'separator' },
+      {
+        label: 'Quit',
+        click: () => {
+          app.isQuitting = true;
+          app.quit();
+        },
+      },
+    ])
+  );
+  tray.on('click', showMainWindow);
 }
 
 app.whenReady().then(() => {
   createWindow();
+  createTray();
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
+    else showMainWindow();
   });
 });
 
 app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') app.quit();
+  // Intentionally no-op: closing to tray (see the window 'close' handler above)
+  // means this only fires after a real quit, when there's nothing left to do.
+});
+
+app.on('before-quit', () => {
+  app.isQuitting = true;
 });
 
 ipcMain.handle('data:load', () => loadData());

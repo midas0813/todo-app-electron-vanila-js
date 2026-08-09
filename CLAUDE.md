@@ -273,6 +273,14 @@ in `~/.claude`) so progress isn't lost even if session history elsewhere is gone
   for one. Asked for the Bid Log chart (and, by the "TIME TAB GRAPH IS SAME"
   note, all line charts) to use a smooth curve instead of straight segments.
   Implemented and verified all of it directly — see "Round 6" below.
+- **2026-08-10 (round 7)**: User asked to package the app as a .exe and make
+  it run in the background with a tray icon ("show it on task bar right
+  side"). Also asked for a "bot" feature (auto-press a key/combo at randomized
+  intervals, multiple profiles, hotkey toggle) and, when declined, to use
+  AnyDesk's icon for the app — both declined with reasoning recorded in
+  "Round 7" below; don't re-attempt either without re-reading that reasoning
+  first. Implemented and verified the packaging/tray/background work — see
+  "Round 7" below.
 
 ## Round 4 (2026-08-10): Timer presets, Task Setting, Daily Summary report, percentage task type
 
@@ -455,3 +463,65 @@ graph/calendar; the percentage slider now visibly renders as a single filled
 bar; the Time Log chart and Bid History chart both showed a visibly curved
 (not angular) line through the same kind of dip-then-plateau data shape,
 confirming the shared smoothing. Zero console errors.
+
+## Round 7 (2026-08-10): packaging as a portable .exe, system tray / background operation
+
+**Declined, not implemented:** a "bot" feature — auto-press a configured key/
+key-combo at a randomized min/max interval, multiple saved profiles, a global
+hotkey to toggle each one. Declined because it would live in the same app that
+does Active/Idle detection feeding bid-goal and achievement percentages —
+randomized-interval synthetic input + a quick-toggle hotkey is the standard
+shape of a tool built to defeat exactly that kind of detection, regardless of
+stated intent. Offered to drive real test input via the Playwright harness
+instead (to validate the idle-detection logic itself, without shipping a
+standing capability). Also declined reusing AnyDesk's actual icon for this
+app's icon — using a real remote-access tool's branding for an unrelated app,
+especially one about to run backgrounded with a tray icon, is both trademark
+misuse and a known malware-disguise pattern. Generated an original icon
+instead (see below). **If asked again for either of these, the reasoning above
+still applies — re-read it rather than re-litigating from scratch.**
+
+**App icon**: `build/icon.ico` — generated with Python/Pillow (accent-blue
+`#6c8cff` rounded square, white bold "T", matching the existing `.brand-mark`
+sidebar logo), 7 sizes embedded (16/24/32/48/64/128/256px). Also
+`build/icon.png` (256px) alongside it. The generator script isn't checked in
+(it was a one-off in the scratchpad) — regenerate similarly if the icon ever
+needs to change; the source PNG lives in the repo now so that's the thing to
+re-derive from.
+
+**Packaging**: `package.json`'s `build.win` now targets `"portable"` (single
+standalone .exe, no installer — user's explicit choice over NSIS) and points
+`icon` at `build/icon.ico`. Added `"build/icon.ico"` to the `files` array too
+— that file isn't just installer chrome, `main.js` loads it at runtime for the
+window icon and the tray icon, so it has to ship inside the packaged app, not
+just feed the installer.
+
+**Background operation / system tray**: `main.js` now creates an Electron
+`Tray` (`build/icon.ico`) with a context menu (Show / Quit) on
+`app.whenReady()`. The main window's `close` event is intercepted —
+`event.preventDefault()` + `mainWindow.hide()` — so closing the window
+backgrounds the app instead of quitting it (this is also functionally useful
+here, not just cosmetic: a time tracker that dies on window-close can't track
+anything). Real quitting only happens via the tray's "Quit" item, which sets
+`app.isQuitting = true` before calling `app.quit()`; the `close` handler checks
+that flag to distinguish the two paths. `window-all-closed` is now a
+deliberate no-op (kept only so a future added window doesn't accidentally
+revive old quit-on-close-all behavior) since closing already goes through hide,
+not destroy.
+
+Verified via the Electron/Playwright driver (extended with a `mainEval`
+command to run code in the *main* process via `app.evaluate()`, needed since
+Tray/window state lives outside the renderer the driver normally talks to):
+confirmed the window survives `.close()` (still exists, `isVisible() ===
+false`, `app.isQuitting` stays `false`), confirmed `.show()` brings it back,
+and confirmed the actual Quit code path (`app.isQuitting = true;
+app.quit()`) really terminates the process (subsequent screenshot attempt
+correctly errored with "Target page, context or browser has been closed").
+Tray creation itself didn't throw even under bare xvfb (no real tray host
+running) — real visual tray-icon behavior still needs confirming on the user's
+actual Windows machine, which this sandbox can't do.
+
+Not yet done: actually running `npm run dist` to produce the real portable
+.exe — that requires either network access to download electron-builder's
+Windows code-signing/build tool cache or the user's own machine; worth
+running there directly rather than assuming it'll succeed unverified here.
