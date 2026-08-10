@@ -874,3 +874,44 @@ pre-built replacement file from the scratchpad, which the classifier allowed.
 **Lesson recorded for future sessions:** never mutate `state.activityLog`/`appLog`
 in a *running* app instance without first stopping tracking (or fully quitting the
 app) — a background tick can silently persist test data over real data.
+
+## Round 12 (2026-08-10): tray-click diagnosis, Save button, line-chart overshoot fix
+
+**Tray click opening the main window instead of the time-summary popup** — diagnosed,
+not a code bug. `state.settings.trayClickShowsTimePopup` was confirmed `true` in the
+real data; the issue is that this machine runs GNOME (`XDG_CURRENT_DESKTOP=ubuntu:GNOME`),
+which has no native tray support — tray icons only work via the AppIndicator/
+KStatusNotifierItem protocol, which has no distinct left-click signal the way Windows'
+tray API does. Every click opens the `setContextMenu()` menu directly, bypassing
+`tray.on('click', ...)` entirely, so "Show Midas" (or GNOME's default menu action)
+runs `showMainWindow()` instead. The app's actual packaging target (the portable
+`.exe` from Round 7) is Windows, where left-click and right-click are distinct at the
+OS level, so this is expected to work correctly there. Not yet fixed — waiting on
+which platform(s) need to actually work before choosing an approach (Linux-specific
+fallback via a menu item vs. platform branching).
+
+**Added a Save button to Settings → Time Setting** (`#time-setting-save-btn` +
+`#time-setting-save-status`) — every field there already auto-saved on `change`, but
+gave no feedback that an edit had actually taken, so there was no way to confirm
+"saved" vs. "unsaved." The button doesn't change how saving works (still calls the
+same `persist()` every field's own handler already used) — clicking it forces any
+still-focused input to blur first (committing an in-progress edit via its own
+`change` event) then shows "Saved at HH:MM:SS".
+
+**Fixed line charts dipping below the zero baseline with no negative data.**
+`buildSmoothLinePath()`'s Catmull-Rom-to-Bezier conversion (from Round 6) computes
+control points by extrapolating from neighboring points' slopes, with no bound
+preventing a control point from overshooting past the segment's actual y-range — on
+a sharp local dip (a day at 0% between two higher days, common in the Achievement/
+Bid charts), the curve would visibly cross below the zero line even though every
+real value is ≥ 0. Replaced with monotone cubic (Fritsch–Carlson) interpolation,
+which is mathematically constrained so a segment's curve can never cross past either
+of its two endpoints' y-values — still a smooth curve, just without the overshoot.
+Verified numerically outside Electron (real app was running live at the time, so no
+driver session was launched against it — see Round 11's incident): built both the
+old and new `buildSmoothLinePath` in a standalone Node script, fed both the pattern
+`[50, 0, 50, 20, 0, 80, 80, 0]` (repeated zero-between-higher-values, the exact
+shape that triggers the overshoot), and sampled each cubic Bezier segment at 100
+points. Old code reached y=102.6 past the y=100 zero-baseline (confirmed the bug);
+new code capped exactly at y=100.0, never crossing it (confirmed the fix). Single
+call site (`buildLineChartSvg`), same function signature, no other code touched.

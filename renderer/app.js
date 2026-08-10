@@ -1029,25 +1029,60 @@ function getWorkRecordPoints() {
   return points;
 }
 
-/* Smooth (Catmull-Rom → cubic Bezier) path through every point, instead of
-   straight segments — used for all line charts (Time Log, Achievement, Bid Log)
-   so they render consistently. */
+/* Smooth path through every point, instead of straight segments — used for all
+   line charts (Time Log, Achievement, Bid Log) so they render consistently.
+   Monotone cubic (Fritsch–Carlson) interpolation, not a plain Catmull-Rom
+   spline — Catmull-Rom's control points extrapolate from neighboring points'
+   slopes and can overshoot past a point's actual value on a sharp local dip
+   (e.g. a day at 0% between two higher days), which visibly dipped the curve
+   below the zero baseline even though no value is ever negative. Monotone
+   interpolation is constrained so a segment's curve can never cross past
+   either of its two endpoints' y-values, so it stays smooth without ever
+   dipping below real data. */
 function buildSmoothLinePath(coords) {
-  if (coords.length === 0) return '';
-  if (coords.length === 1) return `M ${coords[0].x.toFixed(1)} ${coords[0].y.toFixed(1)}`;
+  const n = coords.length;
+  if (n === 0) return '';
+  if (n === 1) return `M ${coords[0].x.toFixed(1)} ${coords[0].y.toFixed(1)}`;
+
+  const dx = [];
+  const slope = [];
+  for (let i = 0; i < n - 1; i++) {
+    dx[i] = coords[i + 1].x - coords[i].x;
+    slope[i] = dx[i] === 0 ? 0 : (coords[i + 1].y - coords[i].y) / dx[i];
+  }
+
+  const tangent = new Array(n);
+  tangent[0] = slope[0];
+  tangent[n - 1] = slope[n - 2];
+  for (let i = 1; i < n - 1; i++) {
+    tangent[i] = slope[i - 1] === 0 || slope[i] === 0 || slope[i - 1] * slope[i] < 0 ? 0 : (slope[i - 1] + slope[i]) / 2;
+  }
+
+  // Fritsch–Carlson: rescale each segment's tangents so the curve can't overshoot past its endpoints.
+  for (let i = 0; i < n - 1; i++) {
+    if (slope[i] === 0) {
+      tangent[i] = 0;
+      tangent[i + 1] = 0;
+      continue;
+    }
+    const a = tangent[i] / slope[i];
+    const b = tangent[i + 1] / slope[i];
+    const h = Math.hypot(a, b);
+    if (h > 3) {
+      const t = 3 / h;
+      tangent[i] = t * a * slope[i];
+      tangent[i + 1] = t * b * slope[i];
+    }
+  }
 
   let d = `M ${coords[0].x.toFixed(1)} ${coords[0].y.toFixed(1)}`;
-  for (let i = 0; i < coords.length - 1; i++) {
-    const p0 = coords[i === 0 ? 0 : i - 1];
+  for (let i = 0; i < n - 1; i++) {
     const p1 = coords[i];
     const p2 = coords[i + 1];
-    const p3 = coords[i + 2 < coords.length ? i + 2 : i + 1];
-
-    const cp1x = p1.x + (p2.x - p0.x) / 6;
-    const cp1y = p1.y + (p2.y - p0.y) / 6;
-    const cp2x = p2.x - (p3.x - p1.x) / 6;
-    const cp2y = p2.y - (p3.y - p1.y) / 6;
-
+    const cp1x = p1.x + dx[i] / 3;
+    const cp1y = p1.y + (tangent[i] * dx[i]) / 3;
+    const cp2x = p2.x - dx[i] / 3;
+    const cp2y = p2.y - (tangent[i + 1] * dx[i]) / 3;
     d += ` C ${cp1x.toFixed(1)} ${cp1y.toFixed(1)}, ${cp2x.toFixed(1)} ${cp2y.toFixed(1)}, ${p2.x.toFixed(1)} ${p2.y.toFixed(1)}`;
   }
   return d;
