@@ -89,9 +89,11 @@ function migrateUserDataIfNeeded() {
 let isSessionLocked = false;
 powerMonitor.on('lock-screen', () => {
   isSessionLocked = true;
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('system:lockStateChanged', true);
 });
 powerMonitor.on('unlock-screen', () => {
   isSessionLocked = false;
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('system:lockStateChanged', false);
 });
 
 let mainWindow;

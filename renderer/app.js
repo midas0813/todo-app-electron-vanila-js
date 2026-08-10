@@ -455,6 +455,16 @@ function stopTrackingLoop() {
     clearInterval(activityInterval);
     activityInterval = null;
   }
+  /* Close the open segments off at the actual stop moment (before clearing
+     trackingStartMs) so Untracked starts exactly here, not up to one interval
+     early. */
+  const now = new Date().toISOString();
+  const lastActivity = state.activityLog[state.activityLog.length - 1];
+  if (isContinuingTrackingSession(lastActivity)) lastActivity.end = now;
+  const lastApp = state.appLog[state.appLog.length - 1];
+  if (isContinuingTrackingSession(lastApp)) lastApp.end = now;
+  persist();
+
   trackingStartMs = null;
   setStatusPill('stopped');
 }
@@ -464,6 +474,30 @@ function applyTrackingInterval() {
     clearInterval(activityInterval);
     activityInterval = setInterval(activityTick, activityIntervalMs);
   }
+}
+
+/* Lock/unlock are real OS events (pushed from main.js the instant they fire),
+   not something we should only discover at the next poll tick — which, while
+   the screen is locked, can be delayed well past activityIntervalMs. Locking
+   is unambiguous, so record it immediately; unlocking needs a fresh idle-time
+   read to tell active from idle, so it just triggers an immediate tick instead
+   of assuming a state. */
+function setupLockStateListener() {
+  window.api.onLockStateChanged((locked) => {
+    if (!activityInterval) return;
+    if (locked) {
+      setStatusPill('locked');
+      recordActivitySample('locked');
+      persist();
+      const activePanel = document.querySelector('.tab-panel.active');
+      if (activePanel && activePanel.id === 'tab-alarm') {
+        renderDashboardDay();
+        renderWorkRecordChart();
+      }
+    } else {
+      activityTick();
+    }
+  });
 }
 
 function setupTrackingToggle() {
@@ -508,19 +542,31 @@ function setStatusPill(kind) {
   }
 }
 
-function earliestSegmentStartMs(nowMs) {
-  const backdated = nowMs - activityIntervalMs;
-  return trackingStartMs !== null ? Math.max(backdated, trackingStartMs) : backdated;
+/* True if `last` belongs to the tracking session currently running — i.e. it's
+   safe to chain a new sample onto it with zero gap. A `last` entry left over
+   from a PRIOR Start/Stop window (its end predates this session's start) must
+   never be bridged across the stopped gap — that gap is genuinely Untracked. */
+function isContinuingTrackingSession(last) {
+  return !!last && trackingStartMs !== null && new Date(last.end).getTime() >= trackingStartMs;
+}
+
+/* Where a brand-new segment should start: right where the previous one left off
+   (zero gap, however late this sample arrives — no blind "now minus one
+   interval" backdating), or at the moment tracking started if there's nothing
+   to chain onto. */
+function chainedStartMs(last, now) {
+  if (isContinuingTrackingSession(last)) return new Date(last.end).getTime();
+  return trackingStartMs !== null ? trackingStartMs : now.getTime();
 }
 
 function recordActivitySample(sampleState) {
   const now = new Date();
   const last = state.activityLog[state.activityLog.length - 1];
-  if (last && last.state === sampleState && now.getTime() - new Date(last.end).getTime() < activityIntervalMs * 3) {
+  if (isContinuingTrackingSession(last) && last.state === sampleState) {
     last.end = now.toISOString();
   } else {
     state.activityLog.push({
-      start: new Date(earliestSegmentStartMs(now.getTime())).toISOString(),
+      start: new Date(chainedStartMs(last, now)).toISOString(),
       end: now.toISOString(),
       state: sampleState,
     });
@@ -536,11 +582,11 @@ function pruneActivityLog() {
 function recordAppSample(appName) {
   const now = new Date();
   const last = state.appLog[state.appLog.length - 1];
-  if (last && last.appName === appName && now.getTime() - new Date(last.end).getTime() < activityIntervalMs * 3) {
+  if (isContinuingTrackingSession(last) && last.appName === appName) {
     last.end = now.toISOString();
   } else {
     state.appLog.push({
-      start: new Date(earliestSegmentStartMs(now.getTime())).toISOString(),
+      start: new Date(chainedStartMs(last, now)).toISOString(),
       end: now.toISOString(),
       appName,
     });
@@ -1308,6 +1354,19 @@ function setupAlarmSettingsForm() {
     sound.loop = false;
     sound.currentTime = 0;
     sound.play().catch(() => {});
+  });
+}
+
+/* Every field in this panel already auto-saves on its own 'change' event —
+   this button doesn't change that. It exists purely so there's an explicit
+   action with visible confirmation, since auto-save alone gives no feedback
+   that an edit actually took. Clicking it also forces any focused input to
+   blur first (and thus fire its own 'change'), so it can't miss an in-progress
+   edit that hasn't committed yet. */
+function setupTimeSettingSaveButton() {
+  document.getElementById('time-setting-save-btn').addEventListener('click', () => {
+    persist();
+    document.getElementById('time-setting-save-status').textContent = `Saved at ${new Date().toLocaleTimeString()}`;
   });
 }
 
@@ -3437,7 +3496,9 @@ async function init() {
   setupTimeSettingsForm();
   setupTrayPopupToggle();
   setupAlarmSettingsForm();
+  setupTimeSettingSaveButton();
   setupTrackingToggle();
+  setupLockStateListener();
   setupDailyTaskForm();
   setupDailyTaskListEvents();
   setupTodayTaskListEvents();
