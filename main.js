@@ -1,6 +1,8 @@
-const { app, BrowserWindow, ipcMain, Notification, powerMonitor, shell, Tray, Menu, nativeImage } = require('electron');
+const { app, BrowserWindow, ipcMain, Notification, powerMonitor, shell, Tray, Menu, nativeImage, screen } = require('electron');
 const path = require('path');
 const fs = require('fs');
+
+app.setName('Midas');
 
 const iconPath = path.join(__dirname, 'build', 'icon.ico');
 
@@ -30,6 +32,13 @@ const defaultData = {
     dailySummaryTime: null,
     dailySummaryNotifiedDate: null,
     additionalTaskWeight: 'middle',
+    trayClickShowsTimePopup: true,
+    sidebarPinned: true,
+    alarmDurationMin: 5,
+    alarmIntervalMin: 1,
+    alarmRepeatCount: 3,
+    alarmSound: 'alarm.wav',
+    alarmVolume: 80,
   },
 };
 
@@ -49,6 +58,30 @@ function loadData() {
 
 function saveData(data) {
   fs.writeFileSync(dataFilePath(), JSON.stringify(data, null, 2), 'utf-8');
+}
+
+// The app was renamed from "time-management-app" / "Time Management" to
+// "Midas" — Electron derives the per-user data folder from the app name, so
+// without this, real accumulated data (bids, accounts, tasks) would appear to
+// vanish on first launch under the new name. One-time, best-effort copy.
+function migrateUserDataIfNeeded() {
+  const newPath = dataFilePath();
+  if (fs.existsSync(newPath)) return;
+
+  const appDataDir = app.getPath('appData');
+  const oldCandidates = ['time-management-app', 'Time Management'].map((name) => path.join(appDataDir, name, 'data.json'));
+
+  for (const oldPath of oldCandidates) {
+    if (!fs.existsSync(oldPath)) continue;
+    try {
+      fs.mkdirSync(path.dirname(newPath), { recursive: true });
+      fs.copyFileSync(oldPath, newPath);
+      console.log(`Migrated data from ${oldPath} to ${newPath}`);
+    } catch (err) {
+      console.error('Data migration failed:', err);
+    }
+    return;
+  }
 }
 
 // getSystemIdleState()'s 'locked' classification is not reliably reported on Windows;
@@ -100,12 +133,129 @@ function showMainWindow() {
   mainWindow.focus();
 }
 
+/* ---------- tray click flyout: today's Active/Idle/Locked/Untracked, small ---------- */
+
+let trayPopup = null;
+
+// Positions a small frameless window just outside the tray icon's bounds,
+// flipping above/below/left/right depending on which screen edge the tray
+// (and its taskbar) is actually on — Windows is usually bottom-right, but
+// this shouldn't assume that.
+function positionNearTray(win, trayBounds) {
+  const [winW, winH] = win.getSize();
+  const display = screen.getDisplayNearestPoint({ x: trayBounds.x, y: trayBounds.y });
+  const work = display.workArea;
+
+  let x = Math.round(trayBounds.x + trayBounds.width / 2 - winW / 2);
+  const y =
+    trayBounds.y > work.y + work.height / 2
+      ? Math.round(trayBounds.y - winH - 8) // taskbar at bottom: pop up above the icon
+      : Math.round(trayBounds.y + trayBounds.height + 8); // taskbar at top: pop down below it
+
+  x = Math.min(Math.max(x, work.x + 8), work.x + work.width - winW - 8);
+  win.setPosition(x, y);
+}
+
+function createTrayPopup() {
+  trayPopup = new BrowserWindow({
+    width: 300,
+    height: 260,
+    frame: false,
+    resizable: false,
+    movable: false,
+    alwaysOnTop: true,
+    skipTaskbar: true,
+    show: false,
+    backgroundColor: '#1c1f27',
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+    },
+  });
+  trayPopup.loadFile(path.join(__dirname, 'renderer', 'tray-popup.html'));
+  trayPopup.on('blur', () => trayPopup.hide());
+}
+
+function toggleTrayPopup() {
+  if (!trayPopup || trayPopup.isDestroyed()) createTrayPopup();
+  if (trayPopup.isVisible()) {
+    trayPopup.hide();
+    return;
+  }
+  positionNearTray(trayPopup, tray.getBounds());
+  trayPopup.webContents.send('tray-popup:refresh');
+  trayPopup.show();
+  trayPopup.focus();
+}
+
+/* ---------- custom in-app toast, bottom-right, alongside the native OS notification ---------- */
+
+let toastWindow = null;
+let toastHideTimeout = null;
+
+function ensureToastWindow() {
+  if (toastWindow && !toastWindow.isDestroyed()) return toastWindow;
+  toastWindow = new BrowserWindow({
+    width: 320,
+    height: 96,
+    frame: false,
+    resizable: false,
+    movable: false,
+    alwaysOnTop: true,
+    skipTaskbar: true,
+    focusable: false,
+    show: false,
+    transparent: true,
+    backgroundColor: '#00000000',
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+    },
+  });
+  toastWindow.loadFile(path.join(__dirname, 'renderer', 'toast.html'));
+  toastWindow.on('closed', () => {
+    toastWindow = null;
+  });
+  return toastWindow;
+}
+
+function positionToast(win) {
+  const display = screen.getPrimaryDisplay();
+  const work = display.workArea;
+  const [w, h] = win.getSize();
+  win.setPosition(work.x + work.width - w - 16, work.y + work.height - h - 16);
+}
+
+function showAppToast(title, body) {
+  const win = ensureToastWindow();
+
+  const send = () => {
+    positionToast(win);
+    win.webContents.send('toast:show', { title, body });
+    win.showInactive();
+    if (toastHideTimeout) clearTimeout(toastHideTimeout);
+    toastHideTimeout = setTimeout(() => {
+      if (win && !win.isDestroyed()) win.hide();
+    }, 6000);
+  };
+
+  if (win.webContents.isLoadingMainFrame()) {
+    win.webContents.once('did-finish-load', send);
+  } else {
+    send();
+  }
+}
+
 function createTray() {
   tray = new Tray(nativeImage.createFromPath(iconPath));
-  tray.setToolTip('Time Management');
+  tray.setToolTip('Midas');
   tray.setContextMenu(
     Menu.buildFromTemplate([
-      { label: 'Show Time Mgmt', click: showMainWindow },
+      { label: 'Show Midas', click: showMainWindow },
       { type: 'separator' },
       {
         label: 'Quit',
@@ -116,10 +266,15 @@ function createTray() {
       },
     ])
   );
-  tray.on('click', showMainWindow);
+  tray.on('click', () => {
+    const showPopup = loadData().settings.trayClickShowsTimePopup !== false;
+    if (showPopup) toggleTrayPopup();
+    else showMainWindow();
+  });
 }
 
 app.whenReady().then(() => {
+  migrateUserDataIfNeeded();
   createWindow();
   createTray();
   app.on('activate', () => {
@@ -144,10 +299,22 @@ ipcMain.handle('data:save', (event, data) => {
   return true;
 });
 
+ipcMain.handle('window:show', () => {
+  showMainWindow();
+  return true;
+});
+
 ipcMain.handle('notify:show', (event, { title, body }) => {
   if (Notification.isSupported()) {
     new Notification({ title, body }).show();
   }
+  showAppToast(title, body);
+  return true;
+});
+
+ipcMain.handle('toast:dismiss', () => {
+  if (toastHideTimeout) clearTimeout(toastHideTimeout);
+  if (toastWindow && !toastWindow.isDestroyed()) toastWindow.hide();
   return true;
 });
 

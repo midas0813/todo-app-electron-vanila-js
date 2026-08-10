@@ -7,4 +7,8 @@ contextBridge.exposeInMainWorld('api', {
   getIdleState: (thresholdSeconds) => ipcRenderer.invoke('system:idleState', thresholdSeconds),
   getActiveWindow: () => ipcRenderer.invoke('system:activeWindow'),
   openExternal: (url) => ipcRenderer.invoke('shell:openExternal', url),
+  showWindow: () => ipcRenderer.invoke('window:show'),
+  onToast: (callback) => ipcRenderer.on('toast:show', (event, data) => callback(data)),
+  dismissToast: () => ipcRenderer.invoke('toast:dismiss'),
+  onTrayPopupRefresh: (callback) => ipcRenderer.on('tray-popup:refresh', () => callback()),
 });

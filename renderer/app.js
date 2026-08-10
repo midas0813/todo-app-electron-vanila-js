@@ -89,13 +89,13 @@ function setupSidebar() {
         document.getElementById(`${btn.dataset.tab}-sub-${btn.dataset.subtab}`).classList.add('active');
       }
 
-      if (btn.dataset.tab === 'time') renderTimeSection();
       if (btn.dataset.tab === 'tasks') {
         refreshTasksExtras();
         renderTasks();
       }
       if (btn.dataset.tab === 'bids') renderBids();
       if (btn.dataset.tab === 'alarm') {
+        renderTimeSection();
         renderAlarms();
         renderWorldClocks();
         renderTimerPresets();
@@ -110,37 +110,83 @@ function setupSidebar() {
 
   const sidebar = document.getElementById('sidebar');
   const pinBtn = document.getElementById('sidebar-pin');
+  const applySidebarPinState = (pinned) => {
+    sidebar.classList.toggle('pinned', pinned);
+    pinBtn.innerHTML = pinned ? '&#171;' : '&#187;';
+  };
+  applySidebarPinState(state.settings.sidebarPinned !== false);
   pinBtn.addEventListener('click', () => {
-    sidebar.classList.toggle('pinned');
-    pinBtn.innerHTML = sidebar.classList.contains('pinned') ? '&#171;' : '&#187;';
+    const pinned = !sidebar.classList.contains('pinned');
+    applySidebarPinState(pinned);
+    state.settings.sidebarPinned = pinned;
+    persist();
   });
 }
 
 /* ---------- additional tasks ---------- */
 
-function getCategories() {
-  const set = new Set();
+/* Pre-migration tasks have no .type — treat those as 'manual' (the old, only, behavior). */
+function migrateTaskTypes() {
   state.tasks.forEach((t) => {
-    if (t.category) set.add(t.category);
+    if (!t.type) t.type = 'manual';
   });
-  return [...set].sort();
 }
 
-function refreshCategoryOptions() {
-  const cats = getCategories();
+/* Exact percentage for a single additional task — mirrors dailyTaskPercent(), but
+   additional tasks aren't daily-recurring so there's no per-day map: a bid-goal
+   task counts bids on its own due date, a percentage task is a single manually-set
+   value, a checklist task is binary 0/100. */
+function additionalTaskPercent(t) {
+  if (t.type === 'bidGoal') {
+    const dateKeyStr = dayKey(new Date(t.dueDate));
+    const count = bidCountForGoal(t, dateKeyStr);
+    const target = t.targetCount || 1;
+    return (count / target) * 100;
+  }
+  if (t.type === 'percentage') {
+    return t.percentValue || 0;
+  }
+  return t.completed ? 100 : 0;
+}
 
-  const datalist = document.getElementById('category-list');
-  datalist.innerHTML = cats.map((c) => `<option value="${escapeHtml(c)}"></option>`).join('');
+function isAdditionalTaskAchieved(t) {
+  if (t.type === 'bidGoal' || t.type === 'percentage') {
+    return additionalTaskPercent(t) >= 100;
+  }
+  return !!t.completed && !!t.completedAt && new Date(t.completedAt).getTime() <= new Date(t.dueDate).getTime();
+}
 
-  const filterSelect = document.getElementById('filter-category');
-  const prev = filterSelect.value;
-  filterSelect.innerHTML =
-    '<option value="">All</option>' + cats.map((c) => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join('');
-  if (cats.includes(prev)) filterSelect.value = prev;
+function populateTaskScopeRefSelect() {
+  const typeSelect = document.getElementById('task-scope-type');
+  const refSelect = document.getElementById('task-scope-ref');
+  const refField = document.querySelector('.task-scope-ref-field');
+  const type = typeSelect.value;
+  refField.classList.toggle('hidden', type === 'overall');
+
+  const prev = refSelect.value;
+  if (type === 'account') {
+    refSelect.innerHTML = state.accounts.map((a) => `<option value="${a.id}">${escapeHtml(accountLabel(a))}</option>`).join('');
+  } else if (type === 'platform') {
+    refSelect.innerHTML = state.platforms.map((p) => `<option value="${escapeHtml(p.name)}">${escapeHtml(p.name)}</option>`).join('');
+  } else {
+    refSelect.innerHTML = '';
+  }
+  if ([...refSelect.options].some((o) => o.value === prev)) refSelect.value = prev;
+}
+
+function updateTaskTypeFieldVisibility() {
+  const type = document.getElementById('task-type').value;
+  document.querySelectorAll('.task-bidgoal-field').forEach((el) => el.classList.toggle('hidden', type !== 'bidGoal'));
+  if (type === 'bidGoal') populateTaskScopeRefSelect();
+  else document.querySelector('.task-scope-ref-field').classList.add('hidden');
 }
 
 function setupTaskForm() {
   const form = document.getElementById('task-form');
+
+  document.getElementById('task-type').addEventListener('change', updateTaskTypeFieldVisibility);
+  document.getElementById('task-scope-type').addEventListener('change', populateTaskScopeRefSelect);
+
   form.addEventListener('submit', (e) => {
     e.preventDefault();
     const title = document.getElementById('task-title').value.trim();
@@ -149,7 +195,11 @@ function setupTaskForm() {
     const dueRaw = document.getElementById('task-due').value;
     const dueDate = dueRaw ? new Date(dueRaw).toISOString() : null;
     const priority = document.getElementById('task-priority').value;
-    const category = document.getElementById('task-category').value.trim();
+    const type = document.getElementById('task-type').value;
+    const targetCount = type === 'bidGoal' ? clampInt(document.getElementById('task-target').value, 1, 999, 1) : null;
+    const scopeType = document.getElementById('task-scope-type').value;
+    const scopeRef = document.getElementById('task-scope-ref').value;
+    const scope = type === 'bidGoal' ? (scopeType === 'overall' || !scopeRef ? { type: 'overall' } : { type: scopeType, refId: scopeRef }) : null;
     const editingId = document.getElementById('task-editing-id').value;
 
     if (editingId) {
@@ -160,7 +210,10 @@ function setupTaskForm() {
         task.notes = notes;
         task.dueDate = dueDate;
         task.priority = priority;
-        task.category = category;
+        task.type = type;
+        task.targetCount = targetCount;
+        task.scope = scope;
+        if (task.percentValue === undefined) task.percentValue = 0;
         if (dueDateChanged) task.reminded = false;
       }
     } else {
@@ -170,7 +223,10 @@ function setupTaskForm() {
         notes,
         dueDate,
         priority,
-        category,
+        type,
+        targetCount,
+        scope,
+        percentValue: 0,
         completed: false,
         completedAt: null,
         createdAt: new Date().toISOString(),
@@ -180,14 +236,13 @@ function setupTaskForm() {
 
     resetTaskForm();
     persist();
-    refreshCategoryOptions();
     renderTasks();
     refreshTasksExtras();
   });
 
   document.getElementById('task-cancel-edit').addEventListener('click', resetTaskForm);
 
-  document.getElementById('filter-category').addEventListener('change', renderTasks);
+  document.getElementById('filter-type').addEventListener('change', renderTasks);
   document.getElementById('filter-show-completed').addEventListener('change', renderTasks);
 }
 
@@ -195,6 +250,9 @@ function resetTaskForm() {
   document.getElementById('task-form').reset();
   document.getElementById('task-editing-id').value = '';
   document.getElementById('task-priority').value = 'medium';
+  document.getElementById('task-type').value = 'manual';
+  document.getElementById('task-scope-type').value = 'overall';
+  updateTaskTypeFieldVisibility();
   document.getElementById('task-submit-btn').textContent = 'Add Task';
   document.getElementById('task-cancel-edit').classList.add('hidden');
 }
@@ -202,12 +260,17 @@ function resetTaskForm() {
 function beginEditTask(id) {
   const task = state.tasks.find((t) => t.id === id);
   if (!task) return;
+  const scope = task.scope || { type: 'overall' };
   document.getElementById('task-editing-id').value = task.id;
   document.getElementById('task-title').value = task.title;
   document.getElementById('task-notes').value = task.notes || '';
   document.getElementById('task-due').value = task.dueDate ? toLocalInputValue(task.dueDate) : '';
   document.getElementById('task-priority').value = task.priority;
-  document.getElementById('task-category').value = task.category || '';
+  document.getElementById('task-type').value = task.type || 'manual';
+  document.getElementById('task-target').value = task.targetCount || '';
+  document.getElementById('task-scope-type').value = scope.type;
+  updateTaskTypeFieldVisibility();
+  document.getElementById('task-scope-ref').value = scope.refId || '';
   document.getElementById('task-submit-btn').textContent = 'Save Changes';
   document.getElementById('task-cancel-edit').classList.remove('hidden');
   document.getElementById('task-title').focus();
@@ -223,14 +286,13 @@ function toLocalInputValue(isoString) {
 function deleteTask(id) {
   state.tasks = state.tasks.filter((t) => t.id !== id);
   persist();
-  refreshCategoryOptions();
   renderTasks();
   refreshTasksExtras();
 }
 
 function toggleTaskComplete(id) {
   const task = state.tasks.find((t) => t.id === id);
-  if (!task) return;
+  if (!task || task.type !== 'manual') return;
   task.completed = !task.completed;
   task.completedAt = task.completed ? new Date().toISOString() : null;
   persist();
@@ -238,16 +300,58 @@ function toggleTaskComplete(id) {
   refreshTasksExtras();
 }
 
+function updateAdditionalTaskPercentage(id, value) {
+  const t = state.tasks.find((x) => x.id === id);
+  if (!t || t.type !== 'percentage') return;
+  t.percentValue = clampInt(value, 0, 100, 0);
+  t.completed = t.percentValue >= 100;
+  t.completedAt = t.completed ? new Date().toISOString() : null;
+  persist();
+  renderTasks();
+  refreshTasksExtras();
+}
+
+/* interactive controls whether bidGoal/percentage additional tasks get an editable
+   slider/number — same pattern as dailyTaskItemHtml's interactive flag. */
+function additionalTaskProgressHtml(t, interactive) {
+  if (t.type === 'bidGoal') {
+    const dateKeyStr = dayKey(new Date(t.dueDate));
+    const count = bidCountForGoal(t, dateKeyStr);
+    const exactPct = additionalTaskPercent(t);
+    const barPct = Math.min(100, Math.round(exactPct));
+    return `
+      <div class="daily-progress-bar"><div class="daily-progress-fill ${exactPct >= 100 ? 'achieved' : ''}" style="width:${barPct}%"></div></div>
+      <div class="task-notes">${count} / ${t.targetCount} bids &middot; ${Math.round(exactPct)}%</div>`;
+  }
+  if (t.type === 'percentage') {
+    const pct = Math.round(t.percentValue || 0);
+    if (interactive) {
+      return `
+        <div class="task-notes percentage-row">
+          <input type="range" class="percentage-slider additional-percentage-slider" min="0" max="100" value="${pct}" data-id="${t.id}" style="${percentageSliderFillStyle(pct)}" />
+          <input type="number" class="percentage-number additional-percentage-number" min="0" max="100" value="${pct}" data-id="${t.id}" />
+          <span>%</span>
+        </div>`;
+    }
+    return `
+      <div class="daily-progress-bar"><div class="daily-progress-fill ${pct >= 100 ? 'achieved' : ''}" style="width:${pct}%"></div></div>
+      <div class="task-notes">${pct}%</div>`;
+  }
+  return '';
+}
+
 function sortedFilteredTasks() {
-  const categoryFilter = document.getElementById('filter-category').value;
+  const typeFilter = document.getElementById('filter-type').value;
   const showCompleted = document.getElementById('filter-show-completed').checked;
 
   let tasks = state.tasks.slice();
-  if (categoryFilter) tasks = tasks.filter((t) => t.category === categoryFilter);
-  if (!showCompleted) tasks = tasks.filter((t) => !t.completed);
+  if (typeFilter) tasks = tasks.filter((t) => t.type === typeFilter);
+  if (!showCompleted) tasks = tasks.filter((t) => !isAdditionalTaskAchieved(t));
 
   tasks.sort((a, b) => {
-    if (a.completed !== b.completed) return a.completed ? 1 : -1;
+    const aDone = isAdditionalTaskAchieved(a);
+    const bDone = isAdditionalTaskAchieved(b);
+    if (aDone !== bDone) return aDone ? 1 : -1;
     if (a.dueDate && b.dueDate) return new Date(a.dueDate) - new Date(b.dueDate);
     if (a.dueDate) return -1;
     if (b.dueDate) return 1;
@@ -258,7 +362,7 @@ function sortedFilteredTasks() {
 }
 
 function renderTasks() {
-  refreshCategoryOptions();
+  migrateTaskTypes();
   const list = document.getElementById('task-list');
   const empty = document.getElementById('task-empty');
   const tasks = sortedFilteredTasks();
@@ -276,12 +380,12 @@ function renderTasks() {
 
   list.innerHTML = tasks
     .map((t) => {
-      const isOverdue = !t.completed && t.dueDate && new Date(t.dueDate).getTime() < now;
-      const isDueSoon =
-        !t.completed && !isOverdue && t.dueDate && new Date(t.dueDate).getTime() - now < 24 * 3600 * 1000;
+      const achieved = isAdditionalTaskAchieved(t);
+      const isOverdue = !achieved && t.dueDate && new Date(t.dueDate).getTime() < now;
+      const isDueSoon = !achieved && !isOverdue && t.dueDate && new Date(t.dueDate).getTime() - now < 24 * 3600 * 1000;
 
       const classes = ['task-item'];
-      if (t.completed) classes.push('completed');
+      if (achieved) classes.push('completed');
       if (isOverdue) classes.push('overdue');
 
       const dueBadge = t.dueDate
@@ -290,17 +394,19 @@ function renderTasks() {
           }${new Date(t.dueDate).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>`
         : '';
 
-      const categoryBadge = t.category ? `<span class="badge">${escapeHtml(t.category)}</span>` : '';
+      const typeLabel = t.type === 'bidGoal' ? 'Bid goal' : t.type === 'percentage' ? 'Percentage' : 'Checklist';
+      const checkboxHtml = t.type === 'manual' ? `<input type="checkbox" class="task-toggle" ${t.completed ? 'checked' : ''} />` : '';
 
       return `
         <li class="${classes.join(' ')}" data-id="${t.id}">
-          <input type="checkbox" class="task-toggle" ${t.completed ? 'checked' : ''} />
+          ${checkboxHtml}
           <div class="task-main">
             <div class="task-title">${escapeHtml(t.title)}</div>
             ${t.notes ? `<div class="task-notes">${escapeHtml(t.notes)}</div>` : ''}
+            ${additionalTaskProgressHtml(t, true)}
             <div class="task-meta">
               <span class="badge priority-${t.priority}">${t.priority}</span>
-              ${categoryBadge}
+              <span class="badge">${typeLabel}</span>
               ${dueBadge}
             </div>
           </div>
@@ -328,6 +434,7 @@ function setupTaskListEvents() {
       if (confirm('Delete this task? This cannot be undone.')) deleteTask(id);
     }
   });
+  setupPercentageSliderEvents(list, 'additional-percentage-slider', 'additional-percentage-number', updateAdditionalTaskPercentage);
 }
 
 /* ---------- activity tracking (automatic: active / idle / locked, manual start/stop) ---------- */
@@ -466,7 +573,7 @@ async function activityTick() {
   persist();
 
   const activePanel = document.querySelector('.tab-panel.active');
-  if (activePanel && activePanel.id === 'tab-time') {
+  if (activePanel && activePanel.id === 'tab-alarm') {
     renderDashboardDay();
     renderWorkRecordChart();
   }
@@ -1155,6 +1262,65 @@ function setupTimeSettingsForm() {
   });
 }
 
+function setupTrayPopupToggle() {
+  document.getElementById('tray-popup-toggle').addEventListener('change', (e) => {
+    state.settings.trayClickShowsTimePopup = e.target.checked;
+    persist();
+  });
+}
+
+/* Duration/Interval/Repeat count/Sound/Volume apply to every ringing notification,
+   not just Alarms-tab alarms — see ringNotification()/fireRingBurst(). */
+function setupAlarmSettingsForm() {
+  document.getElementById('alarm-setting-duration').addEventListener('change', (e) => {
+    state.settings.alarmDurationMin = clampInt(e.target.value, 1, 60, 5);
+    e.target.value = state.settings.alarmDurationMin;
+    persist();
+  });
+  document.getElementById('alarm-setting-interval').addEventListener('change', (e) => {
+    state.settings.alarmIntervalMin = clampInt(e.target.value, 1, 60, 1);
+    e.target.value = state.settings.alarmIntervalMin;
+    persist();
+  });
+  document.getElementById('alarm-setting-repeat').addEventListener('change', (e) => {
+    state.settings.alarmRepeatCount = clampInt(e.target.value, 1, 20, 3);
+    e.target.value = state.settings.alarmRepeatCount;
+    persist();
+  });
+  document.getElementById('alarm-setting-sound').addEventListener('change', (e) => {
+    state.settings.alarmSound = e.target.value;
+    persist();
+  });
+
+  const volumeInput = document.getElementById('alarm-setting-volume');
+  volumeInput.addEventListener('input', () => {
+    document.getElementById('alarm-setting-volume-label').textContent = `${volumeInput.value}%`;
+  });
+  volumeInput.addEventListener('change', (e) => {
+    state.settings.alarmVolume = clampInt(e.target.value, 0, 100, 80);
+    persist();
+  });
+
+  document.getElementById('alarm-setting-test-btn').addEventListener('click', () => {
+    const sound = document.getElementById('alarm-sound');
+    sound.src = `sounds/${state.settings.alarmSound || 'alarm.wav'}`;
+    sound.volume = Math.max(0, Math.min(1, (state.settings.alarmVolume ?? 80) / 100));
+    sound.loop = false;
+    sound.currentTime = 0;
+    sound.play().catch(() => {});
+  });
+}
+
+function renderAlarmSettings() {
+  document.getElementById('alarm-setting-duration').value = state.settings.alarmDurationMin || 5;
+  document.getElementById('alarm-setting-interval').value = state.settings.alarmIntervalMin || 1;
+  document.getElementById('alarm-setting-repeat').value = state.settings.alarmRepeatCount || 3;
+  document.getElementById('alarm-setting-sound').value = state.settings.alarmSound || 'alarm.wav';
+  const vol = state.settings.alarmVolume ?? 80;
+  document.getElementById('alarm-setting-volume').value = vol;
+  document.getElementById('alarm-setting-volume-label').textContent = `${vol}%`;
+}
+
 /* Older saves only have trackingIntervalMin — migrate it to trackingIntervalSec once. */
 function migrateTrackingInterval() {
   if (state.settings.trackingIntervalSec) return;
@@ -1169,6 +1335,7 @@ function renderTimerSettings() {
   document.getElementById('setting-interval-unit').value = useSeconds ? 'sec' : 'min';
   document.getElementById('setting-interval').value = useSeconds ? sec : sec / 60;
   activityIntervalMs = sec * 1000;
+  document.getElementById('tray-popup-toggle').checked = state.settings.trayClickShowsTimePopup !== false;
 }
 
 function renderTimeSection() {
@@ -1184,7 +1351,7 @@ function checkReminders() {
   let changed = false;
   state.tasks.forEach((t) => {
     if (!t.completed && t.dueDate && !t.reminded && new Date(t.dueDate).getTime() <= now) {
-      window.api.notify('Task due', t.title);
+      ringNotification('Task due', t.title);
       t.reminded = true;
       changed = true;
     }
@@ -1209,7 +1376,7 @@ function checkDailyDeadlines() {
     if (!achieved) {
       const status =
         dt.type === 'bidGoal' ? `${bidCountForGoal(dt, todayKey)}/${dt.targetCount} bids submitted` : 'not completed';
-      window.api.notify('Daily goal missed', `${dt.title}: ${status}`);
+      ringNotification('Daily goal missed', `${dt.title}: ${status}`);
     }
     dt.notifiedDates.push(todayKey);
     dt.notifiedDates = dt.notifiedDates.filter((k) => new Date(k).getTime() >= Date.now() - 30 * 24 * 3600 * 1000);
@@ -1285,7 +1452,7 @@ function checkDailySummaryNotification() {
   if (state.settings.dailySummaryNotifiedDate === todayKey) return;
   if (timeStringNow() < time) return;
 
-  window.api.notify('Daily summary', buildDailySummaryReportText());
+  ringNotification('Daily summary', buildDailySummaryReportText());
   state.settings.dailySummaryNotifiedDate = todayKey;
   persist();
 }
@@ -1536,17 +1703,19 @@ function renderDailyTasks() {
   list.innerHTML = state.dailyTasks.map((dt) => dailyTaskItemHtml(dt, false)).join('');
 }
 
-/* Only wired to Today's Tasks' daily list — Settings' Daily Task Setting list
-   renders percentage tasks non-interactively (no slider/number to sync). Keeps
-   the range slider and the typed number in sync live, persists on commit. */
-function setupPercentageSliderEvents(listEl) {
+/* Only wired to Today's Tasks' daily list (and the additional-task lists) —
+   Settings' Daily Task Setting list renders percentage tasks non-interactively
+   (no slider/number to sync). Keeps the range slider and the typed number in
+   sync live, persists on commit. sliderClass/numberClass/updateFn let daily and
+   additional percentage tasks share this without colliding with each other. */
+function setupPercentageSliderEvents(listEl, sliderClass = 'percentage-slider', numberClass = 'percentage-number', updateFn = updateDailyTaskPercentage) {
   listEl.addEventListener('input', (e) => {
-    if (e.target.classList.contains('percentage-slider')) {
+    if (e.target.classList.contains(sliderClass)) {
       e.target.setAttribute('style', percentageSliderFillStyle(e.target.value));
-      const numberEl = e.target.parentElement.querySelector('.percentage-number');
+      const numberEl = e.target.parentElement.querySelector(`.${numberClass}`);
       if (numberEl) numberEl.value = e.target.value;
-    } else if (e.target.classList.contains('percentage-number')) {
-      const sliderEl = e.target.parentElement.querySelector('.percentage-slider');
+    } else if (e.target.classList.contains(numberClass)) {
+      const sliderEl = e.target.parentElement.querySelector(`.${sliderClass}`);
       if (sliderEl) {
         sliderEl.value = e.target.value;
         sliderEl.setAttribute('style', percentageSliderFillStyle(e.target.value));
@@ -1554,8 +1723,8 @@ function setupPercentageSliderEvents(listEl) {
     }
   });
   listEl.addEventListener('change', (e) => {
-    if (!e.target.classList.contains('percentage-slider') && !e.target.classList.contains('percentage-number')) return;
-    updateDailyTaskPercentage(e.target.dataset.id, e.target.value);
+    if (!e.target.classList.contains(sliderClass) && !e.target.classList.contains(numberClass)) return;
+    updateFn(e.target.dataset.id, e.target.value);
   });
 }
 
@@ -1582,23 +1751,21 @@ function additionalTasksDueToday() {
   return state.tasks.filter((t) => t.dueDate && dayKey(new Date(t.dueDate)) === todayKey);
 }
 
-function isAdditionalTaskAchievedToday(t) {
-  return !!t.completed && !!t.completedAt && new Date(t.completedAt).getTime() <= new Date(t.dueDate).getTime();
-}
-
 function todayAdditionalItemHtml(t) {
-  const achieved = isAdditionalTaskAchievedToday(t);
-  const overdue = !t.completed && new Date(t.dueDate).getTime() < Date.now();
+  const achieved = isAdditionalTaskAchieved(t);
+  const overdue = !achieved && new Date(t.dueDate).getTime() < Date.now();
   const classes = ['task-item'];
-  if (t.completed) classes.push('completed');
+  if (achieved) classes.push('completed');
   if (overdue) classes.push('overdue');
   const timeLabel = new Date(t.dueDate).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  const checkboxHtml = t.type === 'manual' ? `<input type="checkbox" class="task-toggle" ${t.completed ? 'checked' : ''} />` : '';
 
   return `
     <li class="${classes.join(' ')}" data-id="${t.id}">
-      <input type="checkbox" class="task-toggle" ${t.completed ? 'checked' : ''} />
+      ${checkboxHtml}
       <div class="task-main">
         <div class="task-title">${escapeHtml(t.title)}</div>
+        ${additionalTaskProgressHtml(t, true)}
         <div class="task-meta">
           <span class="badge ${overdue ? 'due-overdue' : ''}">By ${timeLabel}</span>
           ${achieved ? '<span class="badge status-won">Achieved</span>' : ''}
@@ -1650,8 +1817,8 @@ function computeTodayTotalPercent() {
   const daily = computeDailyAveragePercent(todayKey);
 
   const additionalDue = additionalTasksDueToday();
-  const additionalAchieved = additionalDue.filter(isAdditionalTaskAchievedToday).length;
-  const additionalPercent = additionalDue.length > 0 ? (additionalAchieved / additionalDue.length) * 100 : null;
+  const additionalPercent =
+    additionalDue.length > 0 ? additionalDue.reduce((sum, t) => sum + additionalTaskPercent(t), 0) / additionalDue.length : null;
 
   const dailyWeight = WEIGHT_VALUES.high;
   const additionalWeight = WEIGHT_VALUES[state.settings.additionalTaskWeight || 'middle'];
@@ -1703,7 +1870,8 @@ function setupTodayTaskListEvents() {
   });
   setupPercentageSliderEvents(dailyList);
 
-  document.getElementById('today-additional-list').addEventListener('click', (e) => {
+  const todayAdditionalList = document.getElementById('today-additional-list');
+  todayAdditionalList.addEventListener('click', (e) => {
     const li = e.target.closest('.task-item');
     if (!li) return;
     const id = li.dataset.id;
@@ -1716,6 +1884,7 @@ function setupTodayTaskListEvents() {
       if (confirm('Delete this task? This cannot be undone.')) deleteTask(id);
     }
   });
+  setupPercentageSliderEvents(todayAdditionalList, 'additional-percentage-slider', 'additional-percentage-number', updateAdditionalTaskPercentage);
 }
 
 /* ---------- achievements ---------- */
@@ -2741,16 +2910,125 @@ function checkAlarms() {
     if (alarm.lastFiredKey === fireKey) return;
     if (alarm.days && alarm.days.length > 0 && !alarm.days.includes(weekday)) return;
 
-    window.api.notify(alarm.label || 'Alarm', formatAlarmTime(alarm.time));
     alarm.lastFiredKey = fireKey;
-    if (!alarm.days || alarm.days.length === 0) alarm.enabled = false;
     changed = true;
+    startAlarmRinging(alarm.id);
   });
 
-  if (changed) {
+  if (changed) persist();
+}
+
+/* ---------- ringing (shared by real alarms AND every other notification) ----------
+   Every notification — alarm, task-due reminder, goal-deadline-missed, daily
+   summary, timer-done — rings the same way: ring for Duration, go quiet for
+   Interval, ring again, up to Repeat count times, until the user dismisses it.
+   A real alarm additionally auto-disables itself on dismiss if it's one-time
+   (no repeat days); other notification kinds have no such side effect. */
+
+let ringingItems = []; // { big, small, alarmId }
+let ringTimeoutId = null;
+let ringBurstsFired = 0;
+
+function playAlarmSound() {
+  const sound = document.getElementById('alarm-sound');
+  sound.src = `sounds/${state.settings.alarmSound || 'alarm.wav'}`;
+  sound.volume = Math.max(0, Math.min(1, (state.settings.alarmVolume ?? 80) / 100));
+  sound.loop = true;
+  sound.currentTime = 0;
+  sound.play().catch(() => {
+    /* Autoplay can be blocked before the first user interaction with the page;
+       the window is still brought forward and the overlay still shows. */
+  });
+}
+
+function stopAlarmSound() {
+  const sound = document.getElementById('alarm-sound');
+  sound.pause();
+  sound.currentTime = 0;
+}
+
+function fireRingBurst() {
+  if (ringingItems.length === 0) return;
+  ringBurstsFired += 1;
+  playAlarmSound();
+
+  const durationMs = Math.max(1, state.settings.alarmDurationMin || 5) * 60000;
+  ringTimeoutId = setTimeout(() => {
+    stopAlarmSound();
+    if (ringingItems.length === 0) return; // dismissed during the burst
+
+    const repeatCount = Math.max(1, state.settings.alarmRepeatCount || 3);
+    if (ringBurstsFired >= repeatCount) {
+      // Gave the full repeat cycle a chance without being dismissed — go quiet
+      // for this item (overlay/toast/native notification already happened) and
+      // move on to the next queued item, if any.
+      ringingItems.shift();
+      ringBurstsFired = 0;
+      renderRingingOverlay();
+      if (ringingItems.length > 0) fireRingBurst();
+      return;
+    }
+
+    const intervalMs = Math.max(1, state.settings.alarmIntervalMin || 1) * 60000;
+    ringTimeoutId = setTimeout(fireRingBurst, intervalMs);
+  }, durationMs);
+}
+
+function pushRingItem(big, small, alarmId) {
+  ringingItems.push({ big, small, alarmId: alarmId || null });
+  window.api.showWindow();
+  renderRingingOverlay();
+  if (ringingItems.length === 1) fireRingBurst();
+}
+
+function startAlarmRinging(alarmId) {
+  const alarm = state.alarms.find((a) => a.id === alarmId);
+  if (!alarm) return;
+  window.api.notify(alarm.label || 'Alarm', formatAlarmTime(alarm.time));
+  pushRingItem(formatAlarmTime(alarm.time), alarm.label || 'Alarm', alarmId);
+}
+
+/* Shared by every non-alarm notification source — same ring-until-dismissed
+   behavior as a real alarm, plus the existing native OS notification + toast. */
+function ringNotification(title, body) {
+  window.api.notify(title, body);
+  pushRingItem(title, body, null);
+}
+
+function renderRingingOverlay() {
+  const overlay = document.getElementById('alarm-ringing-overlay');
+  if (ringingItems.length === 0) {
+    overlay.classList.add('hidden');
+    return;
+  }
+  const item = ringingItems[0];
+  overlay.classList.remove('hidden');
+  document.getElementById('alarm-ringing-time').textContent = item.big;
+  document.getElementById('alarm-ringing-label').textContent = item.small;
+  const more = ringingItems.length - 1;
+  document.getElementById('alarm-ringing-more').textContent = more > 0 ? `+${more} more waiting` : '';
+}
+
+function dismissRinging() {
+  const item = ringingItems.shift();
+  if (item && item.alarmId) {
+    const alarm = state.alarms.find((a) => a.id === item.alarmId);
+    if (alarm && (!alarm.days || alarm.days.length === 0)) {
+      alarm.enabled = false;
+    }
     persist();
     renderAlarms();
   }
+
+  clearTimeout(ringTimeoutId);
+  ringBurstsFired = 0;
+  stopAlarmSound();
+  renderRingingOverlay();
+  if (ringingItems.length > 0) fireRingBurst();
+}
+
+function setupAlarmRinging() {
+  document.getElementById('alarm-dismiss-btn').addEventListener('click', dismissRinging);
 }
 
 /* ---------- timer (countdown) ---------- */
@@ -2776,7 +3054,7 @@ function tickTimer() {
     timerRemainingMs = 0;
     renderTimerDisplay();
     stopTimerInterval();
-    window.api.notify('Timer done', "Time's up.");
+    ringNotification('Timer done', "Time's up.");
     document.getElementById('timer-start-btn').classList.remove('hidden');
     document.getElementById('timer-pause-btn').classList.add('hidden');
     document.getElementById('timer-inputs').classList.remove('hidden');
@@ -3157,6 +3435,8 @@ async function init() {
   setupLogRangeTabs();
   setupCalendar();
   setupTimeSettingsForm();
+  setupTrayPopupToggle();
+  setupAlarmSettingsForm();
   setupTrackingToggle();
   setupDailyTaskForm();
   setupDailyTaskListEvents();
@@ -3179,6 +3459,7 @@ async function init() {
   setupAlarmDayPicker();
   setupAlarmForm();
   setupAlarmCardEvents();
+  setupAlarmRinging();
   setupTimer();
   setupTimerPresetForm();
   setupTimerPresetCardEvents();
@@ -3188,8 +3469,8 @@ async function init() {
   setupWorldClockCardEvents();
 
   renderTimerSettings();
+  renderAlarmSettings();
 
-  refreshCategoryOptions();
   renderTasks();
   refreshTasksExtras();
   renderBids();

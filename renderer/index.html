@@ -3,42 +3,24 @@
 <head>
 <meta charset="UTF-8" />
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self';" />
-<title>Time Management</title>
+<title>Midas</title>
 <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
   <div class="app">
-    <nav class="sidebar" id="sidebar">
+    <nav class="sidebar pinned" id="sidebar">
       <div class="sidebar-brand">
-        <span class="brand-mark">T</span>
-        <span class="brand-text">Time Mgmt</span>
+        <span class="brand-mark">M</span>
+        <span class="brand-text">Midas</span>
       </div>
-      <div class="nav-group expanded" data-tab="time">
-        <button class="nav-group-label" data-tab="time" title="Time">
-          <span class="nav-icon"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg></span>
-          <span class="nav-label">Time</span>
-          <span class="nav-group-chevron">&#9656;</span>
-        </button>
-        <div class="nav-group-items">
-          <button class="nav-subitem active" data-tab="time" data-subtab="dashboard" title="Dashboard">
-            <span class="nav-icon"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="3" y1="9" x2="21" y2="9"></line><line x1="9" y1="21" x2="9" y2="9"></line></svg></span>
-            <span class="nav-label">Dashboard</span>
-          </button>
-          <button class="nav-subitem" data-tab="time" data-subtab="log" title="Log">
-            <span class="nav-icon"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="6" x2="21" y2="6"></line><line x1="8" y1="12" x2="21" y2="12"></line><line x1="8" y1="18" x2="21" y2="18"></line><line x1="3" y1="6" x2="3.01" y2="6"></line><line x1="3" y1="12" x2="3.01" y2="12"></line><line x1="3" y1="18" x2="3.01" y2="18"></line></svg></span>
-            <span class="nav-label">Log</span>
-          </button>
-        </div>
-      </div>
-
-      <div class="nav-group" data-tab="tasks">
+      <div class="nav-group expanded" data-tab="tasks">
         <button class="nav-group-label" data-tab="tasks" title="Tasks">
           <span class="nav-icon"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 11 12 14 22 4"></polyline><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"></path></svg></span>
           <span class="nav-label">Tasks</span>
           <span class="nav-group-chevron">&#9656;</span>
         </button>
         <div class="nav-group-items">
-          <button class="nav-subitem" data-tab="tasks" data-subtab="today" title="Today's Tasks">
+          <button class="nav-subitem active" data-tab="tasks" data-subtab="today" title="Today's Tasks">
             <span class="nav-icon"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><path d="M9 12l2 2 4-4"></path></svg></span>
             <span class="nav-label">Today's Tasks</span>
           </button>
@@ -78,7 +60,15 @@
           <span class="nav-group-chevron">&#9656;</span>
         </button>
         <div class="nav-group-items">
-          <button class="nav-subitem active" data-tab="alarm" data-subtab="alarms" title="Alarms">
+          <button class="nav-subitem" data-tab="alarm" data-subtab="dashboard" title="Dashboard">
+            <span class="nav-icon"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="3" y1="9" x2="21" y2="9"></line><line x1="9" y1="21" x2="9" y2="9"></line></svg></span>
+            <span class="nav-label">Dashboard</span>
+          </button>
+          <button class="nav-subitem" data-tab="alarm" data-subtab="log" title="Log">
+            <span class="nav-icon"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="6" x2="21" y2="6"></line><line x1="8" y1="12" x2="21" y2="12"></line><line x1="8" y1="18" x2="21" y2="18"></line><line x1="3" y1="6" x2="3.01" y2="6"></line><line x1="3" y1="12" x2="3.01" y2="12"></line><line x1="3" y1="18" x2="3.01" y2="18"></line></svg></span>
+            <span class="nav-label">Log</span>
+          </button>
+          <button class="nav-subitem" data-tab="alarm" data-subtab="alarms" title="Alarms">
             <span class="nav-icon"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path><path d="M13.73 21a2 2 0 0 1-3.46 0"></path></svg></span>
             <span class="nav-label">Alarms</span>
           </button>
@@ -104,9 +94,9 @@
           <span class="nav-group-chevron">&#9656;</span>
         </button>
         <div class="nav-group-items">
-          <button class="nav-subitem active" data-tab="settings" data-subtab="interval" title="Time Interval">
+          <button class="nav-subitem active" data-tab="settings" data-subtab="interval" title="Time Setting">
             <span class="nav-icon"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="21" x2="4" y2="14"></line><line x1="4" y1="10" x2="4" y2="3"></line><line x1="12" y1="21" x2="12" y2="12"></line><line x1="12" y1="8" x2="12" y2="3"></line><line x1="20" y1="21" x2="20" y2="16"></line><line x1="20" y1="12" x2="20" y2="3"></line><line x1="1" y1="14" x2="7" y2="14"></line><line x1="9" y1="8" x2="15" y2="8"></line><line x1="17" y1="16" x2="23" y2="16"></line></svg></span>
-            <span class="nav-label">Time Interval</span>
+            <span class="nav-label">Time Setting</span>
           </button>
           <button class="nav-subitem" data-tab="settings" data-subtab="tasksetting" title="Daily Task Setting">
             <span class="nav-icon"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="17 1 21 5 17 9"></polyline><path d="M3 11V9a4 4 0 0 1 4-4h14"></path><polyline points="7 23 3 19 7 15"></polyline><path d="M21 13v2a4 4 0 0 1-4 4H3"></path></svg></span>
@@ -123,113 +113,12 @@
         </div>
       </div>
 
-      <button class="sidebar-pin" id="sidebar-pin" title="Pin sidebar open">&#187;</button>
+      <button class="sidebar-pin" id="sidebar-pin" title="Toggle sidebar auto-collapse">&#171;</button>
     </nav>
 
     <main class="content">
-      <!-- TIME TAB -->
-      <section id="tab-time" class="tab-panel active">
-        <!-- DASHBOARD -->
-        <div id="time-sub-dashboard" class="subpanel active">
-          <div class="status-row">
-            <span class="status-pill" id="status-pill"><span class="status-dot"></span><span id="status-text">&mdash;</span></span>
-            <span class="status-hint" id="status-hint"></span>
-            <button type="button" id="tracking-toggle-btn" class="tracking-toggle-btn">Start Tracking</button>
-          </div>
-
-          <div class="date-nav">
-            <button type="button" class="small secondary" id="date-prev-btn">&larr;</button>
-            <input type="date" id="dashboard-date" />
-            <button type="button" class="small secondary" id="date-next-btn">&rarr;</button>
-            <button type="button" class="small secondary" id="date-today-btn">Today</button>
-          </div>
-
-          <div class="timeline-wrap">
-            <div class="timeline-legend">
-              <span><i class="dot dot-active"></i>Active</span>
-              <span><i class="dot dot-idle"></i>Idle</span>
-              <span><i class="dot dot-locked"></i>Locked</span>
-              <span><i class="dot dot-empty"></i>Untracked</span>
-              <span class="timeline-legend-hint">Click a row for detail below &middot; scroll to zoom</span>
-            </div>
-            <div class="timeline-rows">
-              <div class="timeline-row" data-view="status">
-                <div class="timeline-row-label">Computer Usage</div>
-                <div id="timeline" class="timeline"></div>
-              </div>
-              <div class="timeline-row" data-view="app">
-                <div class="timeline-row-label">Applications</div>
-                <div id="app-timeline" class="timeline"></div>
-              </div>
-              <div class="timeline-now-marker hidden" id="timeline-now-marker"></div>
-            </div>
-            <div class="timeline-ruler" id="timeline-ruler"></div>
-          </div>
-          <div class="chart-tooltip hidden" id="chart-tooltip"></div>
-
-          <div class="segments-layout">
-            <div class="section-block">
-              <h2 class="section-heading" id="segment-table-heading">Computer Usage</h2>
-              <table class="segment-table">
-                <thead>
-                  <tr>
-                    <th></th>
-                    <th>Title</th>
-                    <th>Start</th>
-                    <th>End</th>
-                    <th>Duration</th>
-                  </tr>
-                </thead>
-                <tbody id="segment-table-body"></tbody>
-              </table>
-              <p id="segment-table-empty" class="empty-state hidden">No activity recorded for this day.</p>
-            </div>
-
-            <div class="section-block">
-              <h2 class="section-heading">Breakdown</h2>
-              <ul id="breakdown-panel-list" class="breakdown-list"></ul>
-              <div class="breakdown-total" id="breakdown-total"></div>
-            </div>
-          </div>
-        </div>
-
-        <!-- LOG -->
-        <div id="time-sub-log" class="subpanel">
-          <h2 class="section-heading">Work Record</h2>
-          <div class="log-layout">
-            <div class="log-range-tabs">
-              <button type="button" class="log-range-btn active" data-preset="today">Today</button>
-              <button type="button" class="log-range-btn" data-preset="yesterday">Yesterday</button>
-              <button type="button" class="log-range-btn" data-preset="thisWeek">This Week</button>
-              <button type="button" class="log-range-btn" data-preset="lastWeek">Last Week</button>
-              <button type="button" class="log-range-btn" data-preset="thisMonth">This Month</button>
-              <button type="button" class="log-range-btn" data-preset="lastMonth">Last Month</button>
-              <button type="button" class="log-range-btn" data-preset="thisYear">This Year</button>
-            </div>
-
-            <div class="chart-wrap log-chart-wrap">
-              <div id="time-line-chart" class="line-chart"></div>
-            </div>
-
-            <div class="log-calendar">
-              <div class="calendar-header">
-                <button type="button" class="small secondary" id="cal-prev-btn">&larr;</button>
-                <span id="cal-month-label"></span>
-                <button type="button" class="small secondary" id="cal-next-btn">&rarr;</button>
-              </div>
-              <div class="calendar-weekdays">
-                <span>Mo</span><span>Tu</span><span>We</span><span>Th</span><span>Fr</span><span>Sa</span><span>Su</span>
-              </div>
-              <div class="calendar-grid" id="calendar-grid"></div>
-              <div class="calendar-range-label" id="calendar-range-label"></div>
-              <p class="calendar-hint">Click a day, then click another to set a manual range.</p>
-            </div>
-          </div>
-        </div>
-      </section>
-
       <!-- TASKS TAB -->
-      <section id="tab-tasks" class="tab-panel">
+      <section id="tab-tasks" class="tab-panel active">
         <!-- TODAY'S TASKS -->
         <div id="tasks-sub-today" class="subpanel active">
           <h2 class="section-heading">Today's Tasks <span class="section-sub">daily + additional, weighted</span></h2>
@@ -349,18 +238,40 @@
                 </select>
               </label>
               <label class="field">
-                <span>Category</span>
-                <input type="text" id="task-category" list="category-list" placeholder="e.g. Work" maxlength="60" />
-                <datalist id="category-list"></datalist>
+                <span>Type</span>
+                <select id="task-type">
+                  <option value="manual">Checklist</option>
+                  <option value="bidGoal">Bid goal (auto)</option>
+                  <option value="percentage">Percentage</option>
+                </select>
+              </label>
+              <label class="field task-bidgoal-field hidden">
+                <span>Target bids</span>
+                <input type="number" id="task-target" min="1" max="999" />
+              </label>
+              <label class="field task-bidgoal-field hidden">
+                <span>Scope</span>
+                <select id="task-scope-type">
+                  <option value="overall">Overall</option>
+                  <option value="account">Account</option>
+                  <option value="platform">Platform</option>
+                </select>
+              </label>
+              <label class="field task-scope-ref-field hidden">
+                <span>Scope target</span>
+                <select id="task-scope-ref"></select>
               </label>
             </div>
           </form>
 
           <div class="filters">
             <label class="field">
-              <span>Category</span>
-              <select id="filter-category">
+              <span>Type</span>
+              <select id="filter-type">
                 <option value="">All</option>
+                <option value="manual">Checklist</option>
+                <option value="bidGoal">Bid goal</option>
+                <option value="percentage">Percentage</option>
               </select>
             </label>
             <label class="checkbox-field">
@@ -510,8 +421,106 @@
 
       <!-- ALARM & CLOCK TAB -->
       <section id="tab-alarm" class="tab-panel">
+        <!-- DASHBOARD -->
+        <div id="alarm-sub-dashboard" class="subpanel">
+          <div class="status-row">
+            <span class="status-pill" id="status-pill"><span class="status-dot"></span><span id="status-text">&mdash;</span></span>
+            <span class="status-hint" id="status-hint"></span>
+            <button type="button" id="tracking-toggle-btn" class="tracking-toggle-btn">Start Tracking</button>
+          </div>
+
+          <div class="date-nav">
+            <button type="button" class="small secondary" id="date-prev-btn">&larr;</button>
+            <input type="date" id="dashboard-date" />
+            <button type="button" class="small secondary" id="date-next-btn">&rarr;</button>
+            <button type="button" class="small secondary" id="date-today-btn">Today</button>
+          </div>
+
+          <div class="timeline-wrap">
+            <div class="timeline-legend">
+              <span><i class="dot dot-active"></i>Active</span>
+              <span><i class="dot dot-idle"></i>Idle</span>
+              <span><i class="dot dot-locked"></i>Locked</span>
+              <span><i class="dot dot-empty"></i>Untracked</span>
+              <span class="timeline-legend-hint">Click a row for detail below &middot; scroll to zoom</span>
+            </div>
+            <div class="timeline-rows">
+              <div class="timeline-row" data-view="status">
+                <div class="timeline-row-label">Computer Usage</div>
+                <div id="timeline" class="timeline"></div>
+              </div>
+              <div class="timeline-row" data-view="app">
+                <div class="timeline-row-label">Applications</div>
+                <div id="app-timeline" class="timeline"></div>
+              </div>
+              <div class="timeline-now-marker hidden" id="timeline-now-marker"></div>
+            </div>
+            <div class="timeline-ruler" id="timeline-ruler"></div>
+          </div>
+          <div class="chart-tooltip hidden" id="chart-tooltip"></div>
+
+          <div class="segments-layout">
+            <div class="section-block">
+              <h2 class="section-heading" id="segment-table-heading">Computer Usage</h2>
+              <table class="segment-table">
+                <thead>
+                  <tr>
+                    <th></th>
+                    <th>Title</th>
+                    <th>Start</th>
+                    <th>End</th>
+                    <th>Duration</th>
+                  </tr>
+                </thead>
+                <tbody id="segment-table-body"></tbody>
+              </table>
+              <p id="segment-table-empty" class="empty-state hidden">No activity recorded for this day.</p>
+            </div>
+
+            <div class="section-block">
+              <h2 class="section-heading">Breakdown</h2>
+              <ul id="breakdown-panel-list" class="breakdown-list"></ul>
+              <div class="breakdown-total" id="breakdown-total"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- LOG -->
+        <div id="alarm-sub-log" class="subpanel">
+          <h2 class="section-heading">Work Record</h2>
+          <div class="log-layout">
+            <div class="log-range-tabs">
+              <button type="button" class="log-range-btn active" data-preset="today">Today</button>
+              <button type="button" class="log-range-btn" data-preset="yesterday">Yesterday</button>
+              <button type="button" class="log-range-btn" data-preset="thisWeek">This Week</button>
+              <button type="button" class="log-range-btn" data-preset="lastWeek">Last Week</button>
+              <button type="button" class="log-range-btn" data-preset="thisMonth">This Month</button>
+              <button type="button" class="log-range-btn" data-preset="lastMonth">Last Month</button>
+              <button type="button" class="log-range-btn" data-preset="thisYear">This Year</button>
+            </div>
+
+            <div class="chart-wrap log-chart-wrap">
+              <div id="time-line-chart" class="line-chart"></div>
+            </div>
+
+            <div class="log-calendar">
+              <div class="calendar-header">
+                <button type="button" class="small secondary" id="cal-prev-btn">&larr;</button>
+                <span id="cal-month-label"></span>
+                <button type="button" class="small secondary" id="cal-next-btn">&rarr;</button>
+              </div>
+              <div class="calendar-weekdays">
+                <span>Mo</span><span>Tu</span><span>We</span><span>Th</span><span>Fr</span><span>Sa</span><span>Su</span>
+              </div>
+              <div class="calendar-grid" id="calendar-grid"></div>
+              <div class="calendar-range-label" id="calendar-range-label"></div>
+              <p class="calendar-hint">Click a day, then click another to set a manual range.</p>
+            </div>
+          </div>
+        </div>
+
         <!-- ALARMS -->
-        <div id="alarm-sub-alarms" class="subpanel active">
+        <div id="alarm-sub-alarms" class="subpanel">
           <h2 class="section-heading">Alarms</h2>
           <form id="alarm-form" class="task-form">
             <input type="hidden" id="alarm-editing-id" />
@@ -638,6 +647,52 @@
                   <option value="sec">Seconds</option>
                 </select>
               </label>
+            </div>
+          </div>
+
+          <div class="section-block">
+            <h2 class="section-heading">Tray</h2>
+            <label class="checkbox-field">
+              <input type="checkbox" id="tray-popup-toggle" />
+              <span>Clicking the tray icon shows today's time summary (instead of opening the app)</span>
+            </label>
+          </div>
+
+          <div class="section-block">
+            <h2 class="section-heading">Alarm</h2>
+            <p class="settings-note">
+              When an alarm (or any notification) fires, it rings for <strong>Duration</strong>, then goes quiet for
+              <strong>Interval</strong>, then rings again — up to <strong>Repeat count</strong> times total, unless
+              you dismiss it first.
+            </p>
+            <div class="form-row">
+              <label class="field">
+                <span>Duration (min)</span>
+                <input type="number" id="alarm-setting-duration" min="1" max="60" />
+              </label>
+              <label class="field">
+                <span>Interval (min)</span>
+                <input type="number" id="alarm-setting-interval" min="1" max="60" />
+              </label>
+              <label class="field">
+                <span>Repeat count</span>
+                <input type="number" id="alarm-setting-repeat" min="1" max="20" />
+              </label>
+            </div>
+            <div class="form-row">
+              <label class="field">
+                <span>Sound</span>
+                <select id="alarm-setting-sound">
+                  <option value="alarm.wav">Classic Beep</option>
+                  <option value="chime.wav">Chime</option>
+                  <option value="digital.wav">Digital Pulse</option>
+                </select>
+              </label>
+              <label class="field">
+                <span>Volume <span id="alarm-setting-volume-label"></span></span>
+                <input type="range" id="alarm-setting-volume" min="0" max="100" />
+              </label>
+              <button type="button" id="alarm-setting-test-btn" class="secondary">Test sound</button>
             </div>
           </div>
         </div>
@@ -804,6 +859,18 @@
       </section>
     </main>
   </div>
+
+  <!-- Ringing alarm overlay: shown full-screen, blocks interaction, until dismissed -->
+  <div id="alarm-ringing-overlay" class="alarm-ringing-overlay hidden">
+    <div class="alarm-ringing-card">
+      <span class="alarm-ringing-icon"><svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path><path d="M13.73 21a2 2 0 0 1-3.46 0"></path></svg></span>
+      <div class="alarm-ringing-time" id="alarm-ringing-time"></div>
+      <div class="alarm-ringing-label" id="alarm-ringing-label"></div>
+      <div class="alarm-ringing-more" id="alarm-ringing-more"></div>
+      <button type="button" id="alarm-dismiss-btn">Dismiss</button>
+    </div>
+  </div>
+  <audio id="alarm-sound" src="sounds/alarm.wav" preload="auto"></audio>
 
   <script src="app.js"></script>
 </body>

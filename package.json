@@ -1,5 +1,6 @@
 {
-  "name": "time-management-app",
+  "name": "midas",
+  "productName": "Midas",
   "version": "1.0.0",
   "description": "A desktop time management app with tasks, pomodoro timer, time tracking, stats and reminders",
   "main": "main.js",
@@ -14,8 +15,8 @@
     "electron-builder": "^24.13.3"
   },
   "build": {
-    "appId": "com.example.timemanagementapp",
-    "productName": "Time Management",
+    "appId": "com.example.midas",
+    "productName": "Midas",
     "files": [
       "main.js",
       "preload.js",

@@ -281,6 +281,30 @@ in `~/.claude`) so progress isn't lost even if session history elsewhere is gone
   "Round 7" below; don't re-attempt either without re-reading that reasoning
   first. Implemented and verified the packaging/tray/background work — see
   "Round 7" below.
+- **2026-08-10 (round 8)**: User asked to rename the app "Midas", fold the
+  Time tab into Alarm & Clock, and add real alarm sound + make every alarm
+  repeat/ring until explicitly confirmed/dismissed. Implemented and verified
+  all of it directly, including confirming the userData migration actually
+  preserved the real 26 bids / 2 accounts / 1 alarm under the new app name —
+  see "Round 8" below.
+- **2026-08-10 (round 9)**: User asked for a tray-click flyout showing today's
+  Active/Idle/Locked/Untracked time (small popup, with a settings toggle) and
+  for every notification to also show a small custom in-app toast at the
+  bottom-right of the screen, alongside the existing native OS notification.
+  Implemented and verified all of it directly — see "Round 9" below.
+- **2026-08-10 (round 10)**: User asked for alarm Duration/Interval/Repeat-count/
+  Sound/Volume settings (merged into a renamed "Time Setting" subtab), for every
+  notification — not just Alarms-tab alarms — to ring the same way, for
+  Category to be removed from Additional Tasks in favor of a Daily-Task-style
+  Type field, for the default launch screen to be Today's Tasks, for the
+  sidebar's icon misalignment to be fixed, and for the sidebar to start pinned
+  open by default (toggling into the old hover-collapse behavior instead of the
+  other way around). Presented a plan first (per explicit instruction, no code
+  changed that turn), the user added one more requirement (volume) and said "now
+  go implementation" — implemented and verified all of it directly, including
+  hand-verifying the new additional-task percentage math against real bid data
+  and confirming the generalized ring cycle's dismiss-and-one-time-auto-disable
+  logic still works — see "Round 10" below.
 
 ## Round 4 (2026-08-10): Timer presets, Task Setting, Daily Summary report, percentage task type
 
@@ -525,3 +549,224 @@ Not yet done: actually running `npm run dist` to produce the real portable
 .exe — that requires either network access to download electron-builder's
 Windows code-signing/build tool cache or the user's own machine; worth
 running there directly rather than assuming it'll succeed unverified here.
+
+## Round 8 (2026-08-10): renamed to Midas, Time folded into Alarm & Clock, real alarm ringing
+
+**Renamed the app "Midas".** `package.json` top-level `name: "midas"` /
+`productName: "Midas"` (also updated under `build`), `build.appId:
+"com.example.midas"`. `renderer/index.html` `<title>` and the sidebar brand
+(`brand-mark` "T"→"M", `brand-text` → "Midas"). Regenerated `build/icon.ico`/
+`icon.png` with "M" instead of "T" (same accent-blue rounded-square style).
+`main.js` calls `app.setName('Midas')` at module load (before anything reads
+`app.getPath()`), and tray tooltip/menu text updated to match.
+
+**Data migration, because renaming moves the userData folder.** Electron
+derives the per-user data directory from the app name, so without
+intervention the real bid/account/alarm history (26 bids, 2 accounts, 1 alarm
+at time of writing) would appear to vanish under the new name.
+`migrateUserDataIfNeeded()` in `main.js` runs once on `app.whenReady()`,
+before `createWindow()`: if the new path's `data.json` doesn't exist yet, it
+checks old candidate folders (`time-management-app`, `Time Management`) and
+copies the file over. **Verified for real** — before this session the
+`~/.config/Midas` folder didn't exist; after launch it was created and
+`data.json` inside it had the exact real counts (26 bids / 2 accounts / 1
+alarm) copied from `~/.config/time-management-app`.
+
+**Time (Dashboard, Log) folded into "Alarm & Clock".** No longer a separate
+top-level sidebar group. The two subpanels were renamed
+`time-sub-dashboard`/`time-sub-log` → `alarm-sub-dashboard`/`alarm-sub-log`
+(and their nav buttons' `data-tab` changed `time`→`alarm`) since the generic
+tab-switching logic addresses panels as `${data-tab}-sub-${data-subtab}`.
+Alarm & Clock is now 6 subtabs in order: **Dashboard, Log, Alarms, Timer,
+Stopwatch, World Clock** — Dashboard is the new app-wide default/active view
+(previously Time's Dashboard held that role). Sidebar tab-switch handler:
+merged the dead `dataset.tab === 'time'` branch into the `'alarm'` branch
+(`renderTimeSection()` now fires there too). One easy-to-miss leftover fixed:
+`activityTick()`'s "only live-update the dashboard if it's the visible tab"
+check referenced `tab-time`, updated to `tab-alarm`.
+
+**Alarm sound + ring-until-confirmed.** Generated a real audio asset —
+`renderer/sounds/alarm.wav`, a two-tone beep pattern (~1.1s, pure Python
+`wave`/stdlib, no deps) — referenced by a `<audio id="alarm-sound" loop>` in
+`index.html`. New `window.api.showWindow()` IPC (`preload.js` →
+`ipcMain.handle('window:show', ...)` in `main.js`, reusing the `showMainWindow()`
+from Round 7's tray work) brings the window forward when an alarm fires, since
+otherwise a backgrounded/hidden app would ring silently off-screen. `checkAlarms()`
+no longer fires-and-forgets: matching an alarm now calls `startAlarmRinging(id)`,
+which pushes onto a `ringingAlarmIds` queue, shows the window, starts the audio
+looping, and displays a full-screen `#alarm-ringing-overlay` (bell icon, time,
+label, a "+N more" indicator if multiple alarms are queued, and a Dismiss
+button) — CSS gives the card a subtle pulse animation. The sound and overlay
+persist until `dismissRingingAlarm()` runs (Dismiss button click): only then
+does a one-time alarm (no repeat days) get `enabled = false`; repeating alarms
+stay enabled and will ring again on their next scheduled day. Multiple
+simultaneous alarms dismiss one at a time (shift off the queue, next one's
+info replaces the overlay content).
+
+Verified via the Electron/Playwright driver against the real migrated data:
+confirmed the "M" branding and "Midas" title; confirmed Dashboard renders
+correctly as the new default view inside Alarm & Clock with real activity
+data intact; triggered ringing on the user's actual real alarm ("Wake up
+Cobra", 4:30 AM, repeats every day) via `startAlarmRinging()` directly and
+confirmed the audio element genuinely played (`paused: false`, `readyState:
+4`, no error — not just a mock), the overlay rendered with the real alarm's
+time/label, Dismiss genuinely paused/reset the audio and cleared the queue,
+and — importantly — confirmed the real alarm's `enabled: true` and `days`
+were untouched afterward (it's a repeating alarm, so dismiss correctly didn't
+disable it; no real user data was altered by testing). Zero console errors.
+
+## Round 9 (2026-08-10): tray click → time-summary flyout, in-app toast notifications
+
+**Tray click now shows a small "Today's Time" flyout instead of always opening
+the app**, controlled by a new Settings toggle (Settings > Time Interval >
+Tray: "Clicking the tray icon shows today's time summary (instead of opening
+the app)", default **on**). `main.js` gained `positionNearTray()` (flips
+above/below the tray icon depending on which screen edge the taskbar is on,
+clamped to the display's work area), `createTrayPopup()` (a 300x260
+frameless/alwaysOnTop/skipTaskbar `BrowserWindow` loading the new
+`renderer/tray-popup.html`, hides itself on blur), and `toggleTrayPopup()`.
+`createTray()`'s click handler now branches on
+`loadData().settings.trayClickShowsTimePopup`: popup by default, or
+`showMainWindow()` if the user turns the toggle off.
+`renderer/tray-popup.js` computes today's Active/Idle/Locked time by summing
+`activityLog` entries since local midnight, with Untracked as the remainder
+against elapsed wall-clock time — same accounting the Dashboard already uses,
+just condensed to 4 numbers. An "Open Midas" button calls the existing
+`window.api.showWindow()`.
+
+**Every notification now also shows a small custom in-app toast at the
+bottom-right of the screen**, alongside (not replacing) the native OS
+notification. `notify:show`'s handler in `main.js` still creates the native
+`Notification`, then additionally calls the new `showAppToast(title, body)`.
+That function lazily creates a 320x96 frameless/transparent/alwaysOnTop/
+skipTaskbar/**focusable:false** `BrowserWindow` (`ensureToastWindow()`,
+loading `renderer/toast.html`), positions it via `positionToast()` (primary
+display's work area, 16px margin from the bottom-right corner), pushes the
+title/body over IPC, `showInactive()`s it (so it never steals focus from
+whatever the user is doing), and auto-hides it after 6s (`toastHideTimeout`,
+also clearable via a new `toast:dismiss` IPC that `toast.js` calls on click).
+
+Both new pages are self-contained (no link to the main `styles.css`, to avoid
+inheriting body/background rules that would break a transparent/frameless
+popup) with colors hand-matched to the app's existing dark palette, and both
+go through the same CSP as every other page in the app.
+
+Verified via the Electron/Playwright driver — added a `use <index>` driver
+command (switch the driver's active page to `app.windows()[i]`) since this
+was the first feature needing to interact with more than one window at once.
+Also needed a temporary, env-var-gated (`MIDAS_TEST_HOOKS`) hook exposing a
+few internal functions on `global`, since `app.evaluate()` runs in the main
+process but can't see `main.js`'s module-scoped functions — removed again
+once verification finished, so no test scaffolding shipped.
+
+- Triggered `toggleTrayPopup()` directly: the flyout rendered "Today's Time,
+  Monday, Aug 10" with Active 02:38:25 / Idle 06:38:25 / Locked 00:01:00 /
+  Untracked 00:35:56 against the user's real `activityLog` — the four values
+  sum to 09:53:46, matching wall-clock elapsed time (09:53:59) at the moment
+  of the screenshot. Clicking "Open Midas" correctly brought the real main
+  window forward onto the Dashboard.
+- Triggered `showAppToast()` directly with a sample title/body: Playwright's
+  own `page.screenshot()` timed out on this window specifically (it's
+  `focusable:false` + `showInactive()`, which under headless Xvfb with no
+  window manager never gets composited in a way CDP's screenshot call can
+  observe) — worked around this by capturing via Electron's own
+  `webContents.capturePage()` instead, saved to PNG, and visually confirmed a
+  small dark card with an accent-blue left border, bold title, and body text.
+  This is a test-environment quirk, not an app bug — DOM content (`text`
+  command) rendered correctly the whole time, and native `Notification`s from
+  the same code path already worked in Round 7/8's testing.
+- Confirmed the Settings checkbox reflects the real (default `true`) setting
+  on load, and that toggling it persists to `data.json`'s
+  `settings.trayClickShowsTimePopup` (verified both `false` and restoring
+  back to `true`, the real default — no lasting change to user settings).
+- Attached console/pageerror listeners for the whole session: zero errors.
+
+## Round 10 (2026-08-10): alarm ring settings, ring-everything, additional-task types, default tab, sidebar fixes
+
+**New alarm settings — Duration/Interval/Repeat count/Sound/Volume**, all global
+(`state.settings.alarmDurationMin` (5) / `alarmIntervalMin` (1) / `alarmRepeatCount`
+(3) / `alarmSound` ('alarm.wav') / `alarmVolume` (80) in `main.js`). Alarm ringing
+was rebuilt from a single continuous `loop=true` playback into a real cycle
+(`fireRingBurst()` in `app.js`): ring for Duration minutes → silence for Interval
+minutes → ring again, up to Repeat count bursts, unless dismissed first — dismiss
+still cancels immediately at any point, same as before. Two more short tone assets
+were generated the same way as the original (`renderer/sounds/chime.wav`,
+`digital.wav`, pure Python `wave` stdlib, no deps) so Sound has 3 presets. Settings
+> Time Setting (renamed from "Time Interval" — label/title text only, `data-subtab`
+stays `interval`) got a new "Alarm" section with all five controls plus a "Test
+sound" button (single non-looping preview play, independent of the ring cycle).
+
+**Every notification now rings, not just Alarms-tab alarms.** `startAlarmRinging()`
+was generalized: the old `ringingAlarmIds` array (alarm ids only) became
+`ringingItems` (`{big, small, alarmId}` objects), and a new `ringNotification(title,
+body)` pushes a non-alarm item onto the same queue/cycle/overlay machinery. All four
+other `window.api.notify(...)` call sites — task-due reminder, goal-deadline-missed,
+daily summary, timer-done — now call `ringNotification()` instead, so they get the
+full ring-until-dismissed overlay + looping sound + native/toast notification, same
+as a real alarm. Only real alarms carry `alarmId` and get the one-time
+auto-disable-on-dismiss side effect (`dismissRinging()` — unchanged from Round 8's
+alarm-only logic, just now reading `ringingItems[0].alarmId` instead of assuming
+every ringing thing is a real alarm).
+
+**Additional Tasks lost their free-text Category field and gained a Type field**,
+mirroring Daily Tasks' Checklist/Bid goal/Percentage system exactly (`#task-type`,
+same options as `#daily-type`). Bid-goal-type additional tasks get their own
+Target-bids + Scope (Overall/Account/Platform) fields (`populateTaskScopeRefSelect()`
+— a near-duplicate of `populateBidGoalScopeRefSelect()`, following this codebase's
+existing pattern of small per-domain duplicates over a shared abstraction) and count
+bids against their own due date via `additionalTaskPercent()` (reuses
+`bidCountForGoal()`, which only needs `.scope`). Percentage-type additional tasks get
+the same slider+number UI as daily percentage tasks (new `.additional-percentage-*`
+classes so the two systems' event delegation doesn't collide, plus the shared
+`.percentage-slider`/`.percentage-number` classes for the reused visual styling) —
+unlike daily tasks these aren't per-day (`t.percentValue`, a single number, since an
+additional task is due once). `isAdditionalTaskAchieved()` (renamed from
+`isAdditionalTaskAchievedToday` — no longer "today"-only, since bid-goal/percentage
+types can be evaluated any time) replaces the old binary "completed" check for those
+two types; `computeTodayTotalPercent()`'s additional-block percentage is now an
+average of `additionalTaskPercent()` across today's due items (partial credit, same
+methodology as the daily block since Round 3) instead of a flat achieved/not-achieved
+ratio. Old tasks without `.type` are migrated to `'manual'` on first render
+(`migrateTaskTypes()`). The Category filter dropdown became a Type filter.
+
+**Default screen on launch is now Today's Tasks** (was Alarm & Clock → Dashboard) —
+pure HTML markup swap (`active`/`expanded` classes moved from the Alarm & Clock
+group/Dashboard subitem to the Tasks group/Today's Tasks subitem); no JS changes
+needed since `init()` already renders every section unconditionally regardless of
+which tab starts active.
+
+**Sidebar icon misalignment fixed** — `.nav-subitem` had 30px left padding vs.
+`.nav-group-label`'s 16px, so a group's icon and its own children's icons didn't
+line up in a column whenever the group was expanded (visible even collapsed, since
+group-items visibility isn't tied to hover/pin state). Equalized both to 16px;
+hierarchy is still conveyed by the existing smaller font-size/indented text.
+
+**Sidebar now starts pinned (fixed open) by default**, with the pin button toggling
+it into the old hover-to-expand/collapse ("moving") behavior — this reverses the
+previous default. Persisted via a new `state.settings.sidebarPinned` (default
+`true`), applied in `setupSidebar()` on load and updated on every pin-button click,
+same pattern as the tray-popup toggle.
+
+Verified via the Electron/Playwright driver against the real, live data (26 bids, 3
+daily tasks, 2 additional tasks, 2 alarms): confirmed Today's Tasks is the default
+view on boot with the sidebar pinned open and icons aligned in a clean column both
+pinned and collapsed; created a real bid-goal-type additional task (7/10 bids →
+70%, matching real same-day bid count) and a percentage-type one (dragged to 60%),
+confirmed both rendered correctly in both the Additional Task Management list and
+Today's Tasks' additional list, and confirmed the combined percentage math matched
+by hand (daily 52% × weight 100 + additional 58% × weight 50 → 54% overall, where
+58% = average of the 4 real+test additional items' individual percentages) — then
+deleted both test tasks, restoring the real 2. Settings → Time Setting showed the
+renamed label and the new Alarm section with correct defaults (5/1/3/Classic
+Beep/80%); "Test sound" genuinely played (`paused:false`, correct `src`/`volume`).
+Triggered `ringNotification()` directly — overlay showed title/body correctly, sound
+genuinely played on loop with the selected preset/volume, Dismiss stopped it and
+cleared the queue; queued two items and confirmed "+1 more waiting"; created and
+rang a temporary one-time test alarm and confirmed dismiss still auto-disabled it
+(`enabled: false`) while leaving the two real alarms untouched, then deleted the
+test alarm. Restored the Sound setting back to the real default (`alarm.wav`,
+Classic Beep) and sidebar pin back to `true` after testing both away from default.
+Zero console/page errors across the whole session. All test data (1 bid-goal task,
+1 percentage task, 1 temporary alarm) deleted afterward — real data.json (2
+accounts, 26 bids, 3 daily tasks, 2 additional tasks, 2 alarms) left exactly as
+found.
