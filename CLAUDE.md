@@ -915,3 +915,54 @@ shape that triggers the overshoot), and sampled each cubic Bezier segment at 100
 points. Old code reached y=102.6 past the y=100 zero-baseline (confirmed the bug);
 new code capped exactly at y=100.0, never crossing it (confirmed the fix). Single
 call site (`buildLineChartSvg`), same function signature, no other code touched.
+
+## Round 13 (2026-08-11): fixed silent data loss on abrupt restart (atomic saves + backup/recovery)
+
+User reported all data gone after restarting their PC. Diagnosed two compounding
+bugs in `main.js`'s save/load pair, both now fixed:
+
+1. **`saveData()` wrote directly to the real `data.json`**, non-atomically. This
+   app saves fairly often (every activity tick while tracking is on), so an abrupt
+   restart (forced Windows Update restart, power loss, crash) had a real window to
+   land mid-write, truncating the file into invalid JSON.
+2. **`loadData()`'s `catch` didn't distinguish "file missing" from "file
+   corrupted"** — either way it silently returned a totally empty `defaultData`,
+   with no warning and no recovery attempt. If tracking was enabled, the very next
+   save then wrote that empty state back over the (recoverable, just corrupted)
+   original, making the loss permanent and irreversible.
+
+Fix, both in `main.js`:
+- `saveData()` now writes to `data.json.tmp` first, copies the *current* real file
+  to `data.json.bak` (refreshing a one-generation-back backup), then
+  `fs.renameSync()`s the tmp file over the real one. A rename is atomic on the same
+  filesystem, so an interrupted write can never leave `data.json` truncated — the
+  old file stays fully intact and readable right up until the new one is 100%
+  written.
+- `loadData()` now tries the main file first; on any read/parse failure it
+  **quarantines** the bad file (renamed to `data.json.corrupted-<timestamp>`,
+  never deleted) and falls back to `data.json.bak` before ever falling back to
+  empty `defaultData` — so a corrupted file is always recoverable, or at minimum
+  preserved for inspection, never silently destroyed.
+
+Verified with a standalone Node script (real app was running live at the time —
+same reasoning as Round 11/12, no Electron driver launched against the shared
+`data.json`) replicating the exact save/load logic against a scratch directory: (1)
+normal save→load round-trips correctly; (2) after a second save, the backup
+correctly holds the *previous* generation, not the current one; (3) corrupting the
+main file (simulating a truncated write) correctly recovers from the backup **and**
+quarantines the corrupted file instead of deleting it; (4) corrupting/removing both
+main and backup falls back cleanly to `defaultData` without throwing, still
+quarantining the unreadable file; (5) a leftover `.tmp` file (simulating a crash
+that hit *before* the atomic rename completed) has zero effect on the real file —
+proving the write path really is crash-safe. All 5 cases passed.
+
+Root cause wasn't fully confirmable remotely (asked the user whether they run the
+packaged portable `.exe` or `npm start`, and whether the restart was abrupt or
+normal — no reply yet), but this fix closes the failure mode regardless of which
+applies, since it doesn't depend on packaging/platform specifics. A secondary,
+separate possibility flagged but not addressed: electron-builder's NSIS portable
+target (confirmed by reading `node_modules/app-builder-lib/templates/nsis/
+portable.nsi` directly) extracts the app fresh into a randomized temp folder per
+launch and deletes it on exit — by design and independent of `data.json`'s storage
+location (`app.getPath('userData')`, i.e. the stable `%APPDATA%\Roaming\Midas` on
+Windows), but worth ruling out if the issue recurs after this fix.

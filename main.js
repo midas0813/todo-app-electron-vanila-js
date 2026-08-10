@@ -14,6 +14,7 @@ try {
 }
 
 const dataFilePath = () => path.join(app.getPath('userData'), 'data.json');
+const dataBackupPath = () => path.join(app.getPath('userData'), 'data.json.bak');
 
 const defaultData = {
   tasks: [],
@@ -42,22 +43,66 @@ const defaultData = {
   },
 };
 
+function mergeWithDefaults(parsed) {
+  return {
+    ...defaultData,
+    ...parsed,
+    settings: { ...defaultData.settings, ...(parsed.settings || {}) },
+  };
+}
+
+// Falls back to the one-generation-back backup if the main file is missing or
+// corrupted (e.g. truncated by saveData() getting interrupted mid-write by an
+// abrupt shutdown/restart) — only falls back to a genuinely empty state if
+// neither the file nor its backup can be read. A corrupted main file is never
+// silently discarded: it's renamed aside so the next save can't overwrite it
+// for good and it stays around for recovery/inspection.
 function loadData() {
+  const mainPath = dataFilePath();
   try {
-    const raw = fs.readFileSync(dataFilePath(), 'utf-8');
-    const parsed = JSON.parse(raw);
-    return {
-      ...defaultData,
-      ...parsed,
-      settings: { ...defaultData.settings, ...(parsed.settings || {}) },
-    };
+    return mergeWithDefaults(JSON.parse(fs.readFileSync(mainPath, 'utf-8')));
+  } catch (err) {
+    if (fs.existsSync(mainPath)) {
+      try {
+        const quarantinePath = path.join(path.dirname(mainPath), `data.json.corrupted-${Date.now()}`);
+        fs.renameSync(mainPath, quarantinePath);
+        console.error(`data.json was unreadable, moved aside to ${quarantinePath}:`, err);
+      } catch (renameErr) {
+        console.error('Failed to quarantine corrupted data.json:', renameErr);
+      }
+    }
+  }
+
+  try {
+    const recovered = mergeWithDefaults(JSON.parse(fs.readFileSync(dataBackupPath(), 'utf-8')));
+    console.error('Recovered data from data.json.bak after the main file was missing or corrupted.');
+    return recovered;
   } catch (err) {
     return { ...defaultData };
   }
 }
 
+// Atomic write: write the new content to a temp file, then rename it over the
+// real file. A rename is atomic on the same filesystem, so an interrupted
+// write (crash, forced restart, power loss) can never leave data.json
+// truncated — the old file stays intact and readable until the new one is
+// fully written. Also refreshes a one-generation-back backup beforehand, so a
+// bad save still leaves a recoverable prior copy.
 function saveData(data) {
-  fs.writeFileSync(dataFilePath(), JSON.stringify(data, null, 2), 'utf-8');
+  const mainPath = dataFilePath();
+  const tmpPath = `${mainPath}.tmp`;
+
+  fs.writeFileSync(tmpPath, JSON.stringify(data, null, 2), 'utf-8');
+
+  if (fs.existsSync(mainPath)) {
+    try {
+      fs.copyFileSync(mainPath, dataBackupPath());
+    } catch (err) {
+      console.error('Failed to refresh data.json.bak:', err);
+    }
+  }
+
+  fs.renameSync(tmpPath, mainPath);
 }
 
 // The app was renamed from "time-management-app" / "Time Management" to
