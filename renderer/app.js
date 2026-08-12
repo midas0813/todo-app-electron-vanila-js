@@ -1415,6 +1415,154 @@ function renderAlarmSettings() {
   document.getElementById('alarm-setting-volume-label').textContent = `${vol}%`;
 }
 
+/* ---------- Settings > General: data folder, backup, startup, shortcuts ---------- */
+
+async function renderDataFolderInfo() {
+  document.getElementById('data-folder-path').textContent = await window.api.getDataFolder();
+}
+
+function setupDataFolderControls() {
+  document.getElementById('data-folder-change-btn').addEventListener('click', async () => {
+    const status = document.getElementById('data-folder-status');
+    const result = await window.api.pickDataFolder();
+    if (!result.changed) {
+      status.textContent = result.error ? `Couldn't switch folders: ${result.error}` : '';
+      return;
+    }
+    status.textContent = 'Folder changed — restarting…';
+    await window.api.restartApp();
+  });
+
+  document.getElementById('data-folder-open-btn').addEventListener('click', () => {
+    window.api.openDataFolder();
+  });
+}
+
+function setupDataBackupControls() {
+  const status = document.getElementById('data-backup-status');
+
+  document.getElementById('data-export-btn').addEventListener('click', async () => {
+    const result = await window.api.exportData();
+    if (result.exported) status.textContent = `Exported to ${result.path}`;
+    else if (result.error) status.textContent = `Export failed: ${result.error}`;
+  });
+
+  document.getElementById('data-import-btn').addEventListener('click', async () => {
+    if (!confirm('Importing will replace all current data with the contents of the chosen file. Continue?')) return;
+    const result = await window.api.importData();
+    if (result.imported) {
+      status.textContent = 'Imported — reloading…';
+      await reloadAllData();
+      status.textContent = 'Imported.';
+    } else if (result.error) {
+      status.textContent = `Import failed: ${result.error}`;
+    }
+  });
+}
+
+/* Re-fetches state from disk and re-renders everything — same set of calls
+   init() makes after its own initial load, so Import (which replaces the file
+   out from under the already-running app) takes effect without a restart. */
+async function reloadAllData() {
+  state = await window.api.loadData();
+  state.trackingEnabled = !!activityInterval; // import shouldn't silently start/stop the loop that's actually running
+
+  renderTasks();
+  refreshTasksExtras();
+  renderBids();
+  renderTimeSection();
+  renderAlarms();
+  renderWorldClocks();
+  renderTimerPresets();
+  renderDailySummaryReport();
+  updateTrackingToggleButton();
+  renderTimerSettings();
+  renderAlarmSettings();
+  await renderDataFolderInfo();
+  await renderLaunchOnStartupToggle();
+  renderShortcutsSettings();
+}
+
+async function renderLaunchOnStartupToggle() {
+  document.getElementById('launch-on-startup-toggle').checked = await window.api.getLaunchOnStartup();
+}
+
+function setupLaunchOnStartupToggle() {
+  document.getElementById('launch-on-startup-toggle').addEventListener('change', (e) => {
+    window.api.setLaunchOnStartup(e.target.checked);
+  });
+}
+
+/* Converts a captured keydown into an Electron accelerator string
+   (e.g. "CommandOrControl+Alt+T"). Returns null while only a modifier key is
+   held, so the caller can wait for the real key that completes the combo. */
+function keyEventToAccelerator(e) {
+  if (['Control', 'Alt', 'Shift', 'Meta'].includes(e.key)) return null;
+
+  const parts = [];
+  if (e.ctrlKey || e.metaKey) parts.push('CommandOrControl');
+  if (e.altKey) parts.push('Alt');
+  if (e.shiftKey) parts.push('Shift');
+
+  let key = e.key;
+  if (key === ' ') key = 'Space';
+  else if (key.startsWith('Arrow')) key = key.replace('Arrow', '');
+  else if (key.length === 1) key = key.toUpperCase();
+
+  parts.push(key);
+  return parts.join('+');
+}
+
+async function applyShortcutChange(key, accelerator) {
+  if (!state.settings.shortcuts) state.settings.shortcuts = {};
+  state.settings.shortcuts[key] = accelerator || null;
+  persist();
+
+  const failed = await window.api.updateShortcuts(state.settings.shortcuts);
+  const status = document.getElementById('shortcuts-status');
+  status.textContent =
+    failed && failed.length > 0 ? `Couldn't register: ${failed.join(', ')} — might be in use by another app.` : 'Saved.';
+}
+
+function setupShortcutInputs() {
+  document.querySelectorAll('.shortcut-input').forEach((input) => {
+    input.addEventListener('keydown', (e) => {
+      e.preventDefault();
+      if (e.key === 'Escape') {
+        input.blur();
+        return;
+      }
+      if (e.key === 'Backspace' || e.key === 'Delete') {
+        input.value = '';
+        applyShortcutChange(input.dataset.key, '');
+        input.blur();
+        return;
+      }
+      const accelerator = keyEventToAccelerator(e);
+      if (!accelerator) return;
+      input.value = accelerator;
+      applyShortcutChange(input.dataset.key, accelerator);
+      input.blur();
+    });
+  });
+}
+
+function renderShortcutsSettings() {
+  const shortcuts = state.settings.shortcuts || {};
+  document.querySelectorAll('.shortcut-input').forEach((input) => {
+    input.value = shortcuts[input.dataset.key] || '';
+  });
+}
+
+function setupGlobalShortcutListeners() {
+  window.api.onShortcutToggleTracking(() => {
+    document.getElementById('tracking-toggle-btn').click();
+  });
+  window.api.onShortcutDismissAlarm(() => {
+    if (ringingItems.length > 0) dismissRinging();
+  });
+}
+
 /* Older saves only have trackingIntervalMin — migrate it to trackingIntervalSec once. */
 function migrateTrackingInterval() {
   if (state.settings.trackingIntervalSec) return;
@@ -1552,11 +1700,13 @@ function checkDailySummaryNotification() {
 }
 
 function startReminderLoop() {
+  recordPerformanceHistoryIfNeeded();
   checkReminders();
   checkDailyDeadlines();
   checkDailySummaryNotification();
   checkAlarms();
   setInterval(() => {
+    recordPerformanceHistoryIfNeeded();
     checkReminders();
     checkDailyDeadlines();
     checkDailySummaryNotification();
@@ -1840,9 +1990,12 @@ function setupDailyTaskListEvents() {
 
 /* ---------- today's total task management (daily tasks + additional tasks due today, combined) ---------- */
 
+function additionalTasksDueOn(dateKeyStr) {
+  return state.tasks.filter((t) => t.dueDate && dayKey(new Date(t.dueDate)) === dateKeyStr);
+}
+
 function additionalTasksDueToday() {
-  const todayKey = dayKey(new Date());
-  return state.tasks.filter((t) => t.dueDate && dayKey(new Date(t.dueDate)) === todayKey);
+  return additionalTasksDueOn(dayKey(new Date()));
 }
 
 function todayAdditionalItemHtml(t) {
@@ -1901,16 +2054,17 @@ function renderTodayAdditionalList() {
    weighted HIGH; additional tasks' weight is user-configurable (defaults MIDDLE). */
 const WEIGHT_VALUES = { high: 100, middle: 50, low: 25 };
 
-/* Combined today percentage is a WEIGHTED average of two block percentages —
-   daily tasks' own average and additional tasks' completion rate — not a flat
-   per-item average. Daily tasks generate fresh every day and are always weighted
-   High; additional tasks apply only to that day and carry a configurable weight.
-   Calculated collectively (one combined number), never as two separate totals. */
-function computeTodayTotalPercent() {
-  const todayKey = dayKey(new Date());
-  const daily = computeDailyAveragePercent(todayKey);
+/* Combined percentage for a single day is a WEIGHTED average of two block
+   percentages — daily tasks' own average and additional tasks' completion rate
+   — not a flat per-item average. Daily tasks generate fresh every day and are
+   always weighted High; additional tasks apply only to that day and carry a
+   configurable weight. Calculated collectively (one combined number), never as
+   two separate totals. Day-parameterized so the same engine drives both
+   Today's Tasks (today) and the Achievement tab (any day in a range). */
+function computeDayTotalPercent(dateKeyStr) {
+  const daily = computeDailyAveragePercent(dateKeyStr);
 
-  const additionalDue = additionalTasksDueToday();
+  const additionalDue = additionalTasksDueOn(dateKeyStr);
   const additionalPercent =
     additionalDue.length > 0 ? additionalDue.reduce((sum, t) => sum + additionalTaskPercent(t), 0) / additionalDue.length : null;
 
@@ -1933,7 +2087,71 @@ function computeTodayTotalPercent() {
     overall,
     dailyPercent: daily.due > 0 ? daily.percent : null,
     additionalPercent,
+    dailyDue: daily.due,
+    additionalDue: additionalDue.length,
   };
+}
+
+function computeTodayTotalPercent() {
+  return computeDayTotalPercent(dayKey(new Date()));
+}
+
+/* Reads a permanently-recorded snapshot for any day that's already closed out
+   (see recordPerformanceHistoryIfNeeded), falling back to a live computation
+   only for today (which never has one, since it isn't over) or for any day
+   from before this recording system existed. This is what the Achievement tab
+   averages over, instead of re-deriving every past day from current task/bid
+   data on every render. */
+function dayTotalPercentForReport(dateKeyStr) {
+  const recorded = state.performanceHistory && state.performanceHistory[dateKeyStr];
+  if (recorded) return recorded;
+  const live = computeDayTotalPercent(dateKeyStr);
+  return {
+    overall: live.overall,
+    dailyPercent: live.dailyPercent,
+    additionalPercent: live.additionalPercent,
+    dailyDue: live.dailyDue,
+    additionalDue: live.additionalDue,
+  };
+}
+
+/* Records each day's final performance as a permanent snapshot the moment a
+   new day is first noticed, catching up on any days missed while the app was
+   closed. After that, dayTotalPercentForReport() reads the snapshot instead of
+   re-deriving it from current data — so editing or deleting a task later can't
+   silently rewrite what already happened on a day that's already closed.
+   Only ever touches days strictly before today; today isn't recorded until a
+   later day rolls it over. */
+function recordPerformanceHistoryIfNeeded() {
+  const todayKey = dayKey(new Date());
+  if (state.settings.performanceHistoryLastCheckedDate === todayKey) return;
+
+  const lastChecked = state.settings.performanceHistoryLastCheckedDate;
+  const cursor = lastChecked ? new Date(`${lastChecked}T00:00:00`) : new Date(`${todayKey}T00:00:00`);
+  if (lastChecked) cursor.setDate(cursor.getDate() + 1);
+  const todayStart = new Date(`${todayKey}T00:00:00`);
+
+  if (!state.performanceHistory) state.performanceHistory = {};
+
+  while (cursor < todayStart) {
+    const key = dayKey(cursor);
+    if (!state.performanceHistory[key]) {
+      const result = computeDayTotalPercent(key);
+      if (result.dailyDue > 0 || result.additionalDue > 0) {
+        state.performanceHistory[key] = {
+          overall: result.overall,
+          dailyPercent: result.dailyPercent,
+          additionalPercent: result.additionalPercent,
+          dailyDue: result.dailyDue,
+          additionalDue: result.additionalDue,
+        };
+      }
+    }
+    cursor.setDate(cursor.getDate() + 1);
+  }
+
+  state.settings.performanceHistoryLastCheckedDate = todayKey;
+  persist();
 }
 
 function renderTodayTotalTaskManagement() {
@@ -2030,37 +2248,44 @@ function setupAchievementCalendar() {
   achvCalendar.setup();
 }
 
-/* Achievement rate over a range = average of each day's averaged daily-task
-   percentage (an average of averages), consistent with the per-day methodology
-   used everywhere else — not a binary achieved/due count. */
+/* Three percentages over a range — Overall/Daily/Additional — each averaged
+   from dayTotalPercentForReport() (recorded snapshot when a day is already
+   closed, live computation otherwise), matching Today's Tasks' own
+   methodology and labels exactly, just generalized to any range instead of
+   only today. */
 function computeAchievement(fromKey, toKey) {
   const cursor = new Date(`${fromKey}T00:00:00`);
   const end = new Date(`${toKey}T00:00:00`);
-  let percentSum = 0;
-  let dayCount = 0;
-  let totalDue = 0;
+
+  let overallSum = 0;
+  let overallDays = 0;
+  let dailySum = 0;
+  let dailyDays = 0;
+  let additionalSum = 0;
+  let additionalDays = 0;
 
   while (cursor <= end) {
-    const { percent, due } = computeDailyAveragePercent(dayKey(cursor));
-    if (due > 0) {
-      percentSum += percent;
-      dayCount += 1;
-      totalDue += due;
+    const result = dayTotalPercentForReport(dayKey(cursor));
+    if (result.dailyDue > 0 || result.additionalDue > 0) {
+      overallSum += result.overall;
+      overallDays += 1;
+    }
+    if (result.dailyPercent !== null) {
+      dailySum += result.dailyPercent;
+      dailyDays += 1;
+    }
+    if (result.additionalPercent !== null) {
+      additionalSum += result.additionalPercent;
+      additionalDays += 1;
     }
     cursor.setDate(cursor.getDate() + 1);
   }
 
-  const rate = dayCount > 0 ? Math.round(percentSum / dayCount) : 0;
-
-  const fromTime = new Date(`${fromKey}T00:00:00`).getTime();
-  const toTime = endOfDay(new Date(`${toKey}T00:00:00`)).getTime();
-  const additionalCompleted = state.tasks.filter((t) => {
-    if (!t.completed || !t.completedAt) return false;
-    const ct = new Date(t.completedAt).getTime();
-    return ct >= fromTime && ct <= toTime;
-  }).length;
-
-  return { due: totalDue, rate, additionalCompleted };
+  return {
+    overall: overallDays > 0 ? overallSum / overallDays : 0,
+    dailyPercent: dailyDays > 0 ? dailySum / dailyDays : null,
+    additionalPercent: additionalDays > 0 ? additionalSum / additionalDays : null,
+  };
 }
 
 function computeAchievementDailyPoints(fromKey, toKey) {
@@ -2069,8 +2294,8 @@ function computeAchievementDailyPoints(fromKey, toKey) {
   const end = new Date(`${toKey}T00:00:00`);
 
   while (cursor <= end) {
-    const { percent } = computeDailyAveragePercent(dayKey(cursor));
-    points.push({ label: cursor.toLocaleDateString([], { month: 'short', day: 'numeric' }), value: Math.round(percent) });
+    const result = dayTotalPercentForReport(dayKey(cursor));
+    points.push({ label: cursor.toLocaleDateString([], { month: 'short', day: 'numeric' }), value: Math.round(result.overall) });
     cursor.setDate(cursor.getDate() + 1);
   }
   return points;
@@ -2121,15 +2346,89 @@ function renderGoalReport() {
     .join('');
 }
 
+/* Additional Tasks' own history table — separate from the Daily Tasks report
+   above, since additional tasks are due once rather than daily-recurring, so
+   "Days tracked"/"Rate" don't apply; a due date + single result read better. */
+function computeAdditionalTaskReport(fromKey, toKey) {
+  const fromTime = new Date(`${fromKey}T00:00:00`).getTime();
+  const toTime = endOfDay(new Date(`${toKey}T00:00:00`)).getTime();
+
+  return state.tasks
+    .filter((t) => t.dueDate && new Date(t.dueDate).getTime() >= fromTime && new Date(t.dueDate).getTime() <= toTime)
+    .map((t) => ({ t, percent: Math.round(additionalTaskPercent(t)), achieved: isAdditionalTaskAchieved(t) }))
+    .sort((a, b) => new Date(a.t.dueDate) - new Date(b.t.dueDate));
+}
+
+function renderAdditionalTaskReport() {
+  const rows = computeAdditionalTaskReport(achvRangeFrom, achvRangeTo);
+  const tbody = document.getElementById('achv-additional-report-body');
+  const empty = document.getElementById('achv-additional-report-empty');
+
+  if (rows.length === 0) {
+    tbody.innerHTML = '';
+    empty.classList.remove('hidden');
+    return;
+  }
+  empty.classList.add('hidden');
+
+  tbody.innerHTML = rows
+    .map(({ t, percent, achieved }) => {
+      const typeLabel = t.type === 'bidGoal' ? 'Bid goal' : t.type === 'percentage' ? 'Percentage' : 'Checklist';
+      const dueLabel = new Date(t.dueDate).toLocaleDateString([], { month: 'short', day: 'numeric' });
+      const resultLabel = achieved ? `<span class="badge status-won">Achieved</span>` : `${percent}%`;
+      return `
+        <tr>
+          <td>${escapeHtml(t.title)}</td>
+          <td>${typeLabel}</td>
+          <td>${dueLabel}</td>
+          <td>${resultLabel}</td>
+        </tr>`;
+    })
+    .join('');
+}
+
+function buildAchievementHistoryCsv(fromKey, toKey) {
+  const rows = [['Date', 'Overall %', 'Daily %', 'Additional %']];
+  const cursor = new Date(`${fromKey}T00:00:00`);
+  const end = new Date(`${toKey}T00:00:00`);
+  while (cursor <= end) {
+    const key = dayKey(cursor);
+    const r = dayTotalPercentForReport(key);
+    rows.push([key, Math.round(r.overall), r.dailyPercent === null ? '' : Math.round(r.dailyPercent), r.additionalPercent === null ? '' : Math.round(r.additionalPercent)]);
+    cursor.setDate(cursor.getDate() + 1);
+  }
+  return rows.map((r) => r.join(',')).join('\n');
+}
+
+function setupAchievementDownload() {
+  document.getElementById('achv-download-btn').addEventListener('click', async () => {
+    const status = document.getElementById('achv-download-btn');
+    const csv = buildAchievementHistoryCsv(achvRangeFrom, achvRangeTo);
+    const result = await window.api.saveTextFile(`midas-performance-${achvRangeFrom}_to_${achvRangeTo}.csv`, csv);
+    if (result.saved) {
+      const original = status.textContent;
+      status.textContent = 'Saved!';
+      setTimeout(() => {
+        status.textContent = original;
+      }, 2000);
+    }
+  });
+}
+
 function renderAchievementView() {
   const result = computeAchievement(achvRangeFrom, achvRangeTo);
-  document.getElementById('achv-rate').textContent = `${result.rate}%`;
-  document.getElementById('achv-additional').textContent = String(result.additionalCompleted);
+  document.getElementById('achv-overall-rate').textContent = `${Math.round(result.overall)}%`;
+  document.getElementById('achv-overall-label').textContent =
+    achvRangeFrom === achvRangeTo && achvRangeFrom === dayKey(new Date()) ? "Today's overall performance" : 'Overall performance';
+  document.getElementById('achv-daily-rate').textContent = result.dailyPercent === null ? '—' : `${Math.round(result.dailyPercent)}%`;
+  document.getElementById('achv-additional-rate').textContent =
+    result.additionalPercent === null ? '—' : `${Math.round(result.additionalPercent)}%`;
 
   const points = computeAchievementDailyPoints(achvRangeFrom, achvRangeTo);
   document.getElementById('achv-line-chart').innerHTML = buildLineChartSvg(points, (v) => `${v}%`, 100);
 
   renderGoalReport();
+  renderAdditionalTaskReport();
 }
 
 function refreshTasksExtras() {
@@ -2418,11 +2717,14 @@ function toggleBidApproved(id) {
   renderBids();
 }
 
+/* The Bid tab is scoped to today only — full history lives in Bid Log instead
+   (see renderGoalHistBidTable), which can show any range. */
 function sortedFilteredBids() {
   const accountFilter = document.getElementById('bid-filter-account').value;
   const statusFilter = document.getElementById('bid-filter-status').value;
+  const todayKey = dayKey(new Date());
 
-  let bids = state.bids.slice();
+  let bids = state.bids.filter((b) => b.date === todayKey);
   if (accountFilter) bids = bids.filter((b) => b.accountId === accountFilter);
   if (statusFilter === 'approved') bids = bids.filter((b) => b.approved);
   else if (statusFilter === 'pending') bids = bids.filter((b) => !b.approved);
@@ -2435,8 +2737,9 @@ function renderBidList() {
   const tbody = document.getElementById('bid-list-body');
   const empty = document.getElementById('bid-empty');
   const bids = sortedFilteredBids();
+  const todayTotal = state.bids.filter((b) => b.date === dayKey(new Date())).length;
 
-  document.getElementById('bid-count').textContent = `${bids.length} shown / ${state.bids.length} total`;
+  document.getElementById('bid-count').textContent = `${bids.length} shown / ${todayTotal} today`;
 
   if (bids.length === 0) {
     tbody.innerHTML = '';
@@ -2475,11 +2778,11 @@ function renderBidList() {
 }
 
 function renderBidStats() {
-  const total = state.bids.length;
-  const approved = state.bids.filter((b) => b.approved).length;
+  const todayKey = dayKey(new Date());
+  const todayBids = state.bids.filter((b) => b.date === todayKey);
 
-  document.getElementById('bid-stat-count').textContent = String(total);
-  document.getElementById('bid-stat-approved').textContent = String(approved);
+  document.getElementById('bid-stat-count').textContent = String(todayBids.length);
+  document.getElementById('bid-stat-approved').textContent = String(todayBids.filter((b) => b.approved).length);
 }
 
 function renderTodayBidHint() {
@@ -2834,6 +3137,66 @@ function renderGoalHistory() {
   } else {
     document.getElementById('goalhist-line-chart').innerHTML = '<p class="empty-state">Select an account or platform.</p>';
   }
+
+  renderGoalHistBidTable();
+}
+
+/* Bid Log's own table — every bid in the selected range, filtered by the same
+   View-by selection as the chart above it, so the graph and the table always
+   agree. Read-only: editing/deleting a bid belongs to the Bid tab. */
+function filteredBidsForGoalHist() {
+  const viewType = document.getElementById('goalhist-view-type').value;
+  const viewRef = document.getElementById('goalhist-view-ref').value;
+
+  let bids = state.bids.filter((b) => b.date >= goalHistRangeFrom && b.date <= goalHistRangeTo);
+  if (viewType === 'account' && viewRef) bids = bids.filter((b) => b.accountId === viewRef);
+  else if (viewType === 'platform' && viewRef) bids = bids.filter((b) => b.platform === viewRef);
+
+  bids.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+  return bids;
+}
+
+function renderGoalHistBidTable() {
+  const tbody = document.getElementById('goalhist-bid-list-body');
+  const empty = document.getElementById('goalhist-bid-list-empty');
+  const bids = filteredBidsForGoalHist();
+
+  document.getElementById('goalhist-table-range-label').textContent =
+    goalHistRangeFrom === goalHistRangeTo ? formatDateLabel(goalHistRangeFrom) : `${formatDateLabel(goalHistRangeFrom)} – ${formatDateLabel(goalHistRangeTo)}`;
+
+  if (bids.length === 0) {
+    tbody.innerHTML = '';
+    empty.classList.remove('hidden');
+    return;
+  }
+  empty.classList.add('hidden');
+
+  tbody.innerHTML = bids
+    .map((b) => {
+      const timeLabel = new Date(b.createdAt).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+      const linkBtn = b.link
+        ? `<button type="button" class="small secondary open-link-btn" data-link="${escapeHtml(b.link)}">Open</button>`
+        : '';
+      const accountText = [b.memberName, b.platform].filter(Boolean).join(' — ');
+      return `
+        <tr>
+          <td><span class="seg-color-dot" style="background:${b.approved ? 'var(--success)' : 'var(--text-dim)'}"></span></td>
+          <td>${escapeHtml(b.company)}</td>
+          <td>${accountText ? escapeHtml(accountText) : '—'}</td>
+          <td><span class="badge ${b.approved ? 'status-won' : ''}">${b.approved ? 'Approved' : 'Pending'}</span></td>
+          <td>${timeLabel}</td>
+          <td>${linkBtn}</td>
+        </tr>`;
+    })
+    .join('');
+}
+
+function setupGoalHistBidTableEvents() {
+  document.getElementById('goalhist-bid-list-body').addEventListener('click', (e) => {
+    if (!e.target.classList.contains('open-link-btn')) return;
+    const link = e.target.dataset.link;
+    if (link) window.api.openExternal(link);
+  });
 }
 
 /* ---------- alarms (Windows-10-alarm-style: time + label + repeat days) ---------- */
@@ -3532,12 +3895,18 @@ async function init() {
   setupTrayPopupToggle();
   setupAlarmSettingsForm();
   setupTimeSettingSaveButton();
+  setupDataFolderControls();
+  setupDataBackupControls();
+  setupLaunchOnStartupToggle();
+  setupShortcutInputs();
+  setupGlobalShortcutListeners();
   setupTrackingToggle();
   setupLockStateListener();
   setupDailyTaskForm();
   setupDailyTaskListEvents();
   setupTodayTaskListEvents();
   setupAchievements();
+  setupAchievementDownload();
   setupAchievementCalendar();
   setupPlatformForm();
   setupPlatformCardEvents();
@@ -3552,6 +3921,7 @@ async function init() {
   setupGoalHistRangeTabs();
   setupGoalHistCalendar();
   setupGoalHistViewSelect();
+  setupGoalHistBidTableEvents();
   setupAlarmDayPicker();
   setupAlarmForm();
   setupAlarmCardEvents();
@@ -3566,6 +3936,9 @@ async function init() {
 
   renderTimerSettings();
   renderAlarmSettings();
+  renderDataFolderInfo();
+  renderLaunchOnStartupToggle();
+  renderShortcutsSettings();
 
   renderTasks();
   refreshTasksExtras();

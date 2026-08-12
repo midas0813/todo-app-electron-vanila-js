@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, Notification, powerMonitor, shell, Tray, Menu, nativeImage, screen } = require('electron');
+const { app, BrowserWindow, ipcMain, Notification, powerMonitor, shell, Tray, Menu, nativeImage, screen, dialog, globalShortcut } = require('electron');
 const path = require('path');
 const fs = require('fs');
 
@@ -13,8 +13,34 @@ try {
   activeWin = null;
 }
 
-const dataFilePath = () => path.join(app.getPath('userData'), 'data.json');
-const dataBackupPath = () => path.join(app.getPath('userData'), 'data.json.bak');
+// Data normally lives in the OS-managed userData folder, but can be redirected
+// to a user-chosen folder (e.g. a synced or removable drive) via Settings — so
+// the same folder can be pointed at from multiple machines. The pointer to
+// that choice has to live somewhere that's ALWAYS the fixed OS location
+// (config.json), since the whole point of it is telling us where to look for
+// everything else.
+const configFilePath = () => path.join(app.getPath('userData'), 'config.json');
+
+function readConfig() {
+  try {
+    return JSON.parse(fs.readFileSync(configFilePath(), 'utf-8'));
+  } catch (err) {
+    return {};
+  }
+}
+
+function writeConfig(config) {
+  fs.writeFileSync(configFilePath(), JSON.stringify(config, null, 2), 'utf-8');
+}
+
+function resolveDataDir() {
+  const config = readConfig();
+  if (config.dataDir && fs.existsSync(config.dataDir)) return config.dataDir;
+  return app.getPath('userData');
+}
+
+const dataFilePath = () => path.join(resolveDataDir(), 'data.json');
+const dataBackupPath = () => path.join(resolveDataDir(), 'data.json.bak');
 
 const defaultData = {
   tasks: [],
@@ -28,9 +54,11 @@ const defaultData = {
   worldClocks: [],
   timerPresets: [],
   trackingEnabled: false,
+  performanceHistory: {},
   settings: {
     trackingIntervalSec: 60,
     dailySummaryTime: null,
+    performanceHistoryLastCheckedDate: null,
     dailySummaryNotifiedDate: null,
     additionalTaskWeight: 'middle',
     trayClickShowsTimePopup: true,
@@ -40,14 +68,26 @@ const defaultData = {
     alarmRepeatCount: 3,
     alarmSound: 'alarm.wav',
     alarmVolume: 80,
+    shortcuts: {
+      trayPopup: 'CommandOrControl+Alt+T',
+      toggleTracking: 'CommandOrControl+Alt+S',
+      showWindow: 'CommandOrControl+Alt+M',
+      dismissAlarm: 'CommandOrControl+Alt+D',
+    },
   },
 };
 
 function mergeWithDefaults(parsed) {
+  const settings = { ...defaultData.settings, ...(parsed.settings || {}) };
+  // Shallow-merged like the rest of settings, `shortcuts` also needs its own
+  // merge one level deeper — otherwise a saved settings.shortcuts object
+  // (even one only missing a key added by a later update) would fully
+  // replace the defaults instead of filling in around it.
+  settings.shortcuts = { ...defaultData.settings.shortcuts, ...((parsed.settings && parsed.settings.shortcuts) || {}) };
   return {
     ...defaultData,
     ...parsed,
-    settings: { ...defaultData.settings, ...(parsed.settings || {}) },
+    settings,
   };
 }
 
@@ -146,11 +186,17 @@ let tray;
 app.isQuitting = false;
 
 function createWindow() {
+  // Launched via the OS login item with our own --hidden flag (set in
+  // setLoginItemEnabled below) — start backgrounded instead of popping the
+  // window on every boot, consistent with this app's tray-first design.
+  const startHidden = process.argv.includes('--hidden');
+
   mainWindow = new BrowserWindow({
     width: 1080,
     height: 760,
     minWidth: 780,
     minHeight: 560,
+    show: !startHidden,
     backgroundColor: '#14161c',
     icon: iconPath,
     webPreferences: {
@@ -320,14 +366,43 @@ function createTray() {
   });
 }
 
+/* ---------- global keyboard shortcuts (work even when Midas isn't focused) ---------- */
+
+// Two of these (toggling tracking, dismissing a ringing alarm) are actions the
+// renderer owns the state for, so they're just forwarded as an event rather
+// than handled here directly.
+function registerShortcuts(shortcuts) {
+  globalShortcut.unregisterAll();
+  const merged = { ...defaultData.settings.shortcuts, ...(shortcuts || {}) };
+  const actions = {
+    trayPopup: () => toggleTrayPopup(),
+    showWindow: () => showMainWindow(),
+    toggleTracking: () => mainWindow && !mainWindow.isDestroyed() && mainWindow.webContents.send('shortcut:toggleTracking'),
+    dismissAlarm: () => mainWindow && !mainWindow.isDestroyed() && mainWindow.webContents.send('shortcut:dismissAlarm'),
+  };
+
+  const failed = [];
+  for (const [key, accelerator] of Object.entries(merged)) {
+    if (!accelerator || !actions[key]) continue; // cleared/disabled by the user
+    const ok = globalShortcut.register(accelerator, actions[key]);
+    if (!ok) failed.push(key);
+  }
+  return failed;
+}
+
 app.whenReady().then(() => {
   migrateUserDataIfNeeded();
   createWindow();
   createTray();
+  registerShortcuts(loadData().settings.shortcuts);
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
     else showMainWindow();
   });
+});
+
+app.on('will-quit', () => {
+  globalShortcut.unregisterAll();
 });
 
 app.on('window-all-closed', () => {
@@ -388,3 +463,112 @@ ipcMain.handle('shell:openExternal', (event, url) => {
   }
   return false;
 });
+
+/* ---------- user-defined data folder ---------- */
+
+ipcMain.handle('data:getFolder', () => resolveDataDir());
+
+ipcMain.handle('data:openFolder', () => {
+  shell.openPath(resolveDataDir());
+  return true;
+});
+
+// Copies the existing data (if any) into the newly-chosen folder so switching
+// is never destructive by default, then records the choice in config.json.
+// The app still needs a restart afterward — every path derived from
+// resolveDataDir() is only re-read at call time, but a lot of main-process
+// state (the Tray menu, in-flight IPC handlers) was set up assuming the old
+// location, so a clean relaunch is simpler and safer than trying to migrate
+// everything live.
+ipcMain.handle('data:pickFolder', async () => {
+  const result = await dialog.showOpenDialog(mainWindow, { properties: ['openDirectory', 'createDirectory'] });
+  if (result.canceled || !result.filePaths[0]) return { changed: false };
+
+  const newDir = result.filePaths[0];
+  const oldDir = resolveDataDir();
+  if (path.resolve(newDir) === path.resolve(oldDir)) return { changed: false };
+
+  try {
+    const oldFile = path.join(oldDir, 'data.json');
+    const oldBackup = path.join(oldDir, 'data.json.bak');
+    if (fs.existsSync(oldFile)) fs.copyFileSync(oldFile, path.join(newDir, 'data.json'));
+    if (fs.existsSync(oldBackup)) fs.copyFileSync(oldBackup, path.join(newDir, 'data.json.bak'));
+    writeConfig({ ...readConfig(), dataDir: newDir });
+    return { changed: true, path: newDir };
+  } catch (err) {
+    return { changed: false, error: String(err.message || err) };
+  }
+});
+
+ipcMain.handle('data:restartApp', () => {
+  app.relaunch();
+  app.isQuitting = true;
+  app.quit();
+});
+
+ipcMain.handle('data:saveTextFile', async (event, { defaultName, content }) => {
+  const result = await dialog.showSaveDialog(mainWindow, { defaultPath: defaultName });
+  if (result.canceled || !result.filePath) return { saved: false };
+  try {
+    fs.writeFileSync(result.filePath, content, 'utf-8');
+    return { saved: true, path: result.filePath };
+  } catch (err) {
+    return { saved: false, error: String(err.message || err) };
+  }
+});
+
+ipcMain.handle('data:export', async () => {
+  const result = await dialog.showSaveDialog(mainWindow, {
+    defaultPath: `midas-backup-${new Date().toISOString().slice(0, 10)}.json`,
+    filters: [{ name: 'JSON', extensions: ['json'] }],
+  });
+  if (result.canceled || !result.filePath) return { exported: false };
+  try {
+    fs.writeFileSync(result.filePath, JSON.stringify(loadData(), null, 2), 'utf-8');
+    return { exported: true, path: result.filePath };
+  } catch (err) {
+    return { exported: false, error: String(err.message || err) };
+  }
+});
+
+// Goes through the same atomic saveData() as every other save, so an import
+// that gets interrupted mid-write is exactly as crash-safe as a normal save —
+// and the existing data.json.bak rollover means the pre-import data is still
+// recoverable even without a dedicated "before import" backup step.
+ipcMain.handle('data:import', async () => {
+  const result = await dialog.showOpenDialog(mainWindow, {
+    properties: ['openFile'],
+    filters: [{ name: 'JSON', extensions: ['json'] }],
+  });
+  if (result.canceled || !result.filePaths[0]) return { imported: false };
+  try {
+    const parsed = JSON.parse(fs.readFileSync(result.filePaths[0], 'utf-8'));
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      throw new Error('That file is not a valid Midas backup.');
+    }
+    saveData(mergeWithDefaults(parsed));
+    return { imported: true };
+  } catch (err) {
+    return { imported: false, error: String(err.message || err) };
+  }
+});
+
+/* ---------- launch on startup ---------- */
+
+ipcMain.handle('app:getLaunchOnStartup', () => app.getLoginItemSettings().openAtLogin);
+
+ipcMain.handle('app:setLaunchOnStartup', (event, enabled) => {
+  app.setLoginItemSettings({
+    openAtLogin: !!enabled,
+    openAsHidden: true, // honored on macOS
+    args: enabled ? ['--hidden'] : [], // used on Windows/Linux — see createWindow()
+  });
+  return app.getLoginItemSettings().openAtLogin;
+});
+
+/* ---------- global shortcuts ---------- */
+
+// Returns the accelerator keys that failed to register (e.g. already claimed
+// by another app) so the renderer can surface that instead of pretending it
+// worked.
+ipcMain.handle('shortcuts:update', (event, shortcuts) => registerShortcuts(shortcuts));

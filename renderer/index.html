@@ -110,6 +110,10 @@
             <span class="nav-icon"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line></svg></span>
             <span class="nav-label">Daily Summary</span>
           </button>
+          <button class="nav-subitem" data-tab="settings" data-subtab="general" title="General">
+            <span class="nav-icon"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2 2 7l10 5 10-5-10-5z"></path><path d="M2 17l10 5 10-5"></path><path d="M2 12l10 5 10-5"></path></svg></span>
+            <span class="nav-label">General</span>
+          </button>
         </div>
       </div>
 
@@ -167,12 +171,16 @@
             <div>
               <div class="stats-cards">
                 <div class="stat-card">
-                  <div class="stat-value" id="achv-rate">0%</div>
-                  <div class="stat-label">Daily task achievement (averaged)</div>
+                  <div class="stat-value" id="achv-overall-rate">0%</div>
+                  <div class="stat-label" id="achv-overall-label">Today's overall performance</div>
                 </div>
                 <div class="stat-card">
-                  <div class="stat-value" id="achv-additional">0</div>
-                  <div class="stat-label">Additional tasks completed</div>
+                  <div class="stat-value" id="achv-daily-rate">0%</div>
+                  <div class="stat-label">Daily tasks</div>
+                </div>
+                <div class="stat-card">
+                  <div class="stat-value" id="achv-additional-rate">0%</div>
+                  <div class="stat-label">Additional tasks</div>
                 </div>
               </div>
 
@@ -180,6 +188,11 @@
                 <div id="achv-line-chart" class="line-chart"></div>
               </div>
 
+              <div class="form-row">
+                <button type="button" id="achv-download-btn" class="secondary">Download history</button>
+              </div>
+
+              <h2 class="section-heading">Daily Tasks</h2>
               <table class="segment-table">
                 <thead>
                   <tr>
@@ -192,6 +205,20 @@
                 <tbody id="achv-goal-report-body"></tbody>
               </table>
               <p id="achv-goal-report-empty" class="empty-state hidden">No daily tasks yet.</p>
+
+              <h2 class="section-heading">Additional Tasks</h2>
+              <table class="segment-table">
+                <thead>
+                  <tr>
+                    <th>Task</th>
+                    <th>Type</th>
+                    <th>Due</th>
+                    <th>Result</th>
+                  </tr>
+                </thead>
+                <tbody id="achv-additional-report-body"></tbody>
+              </table>
+              <p id="achv-additional-report-empty" class="empty-state hidden">No additional tasks due in this range.</p>
             </div>
 
             <div class="log-calendar">
@@ -322,11 +349,11 @@
           <div class="stats-cards">
             <div class="stat-card">
               <div class="stat-value" id="bid-stat-count">0</div>
-              <div class="stat-label">Positions applied</div>
+              <div class="stat-label">Positions applied today</div>
             </div>
             <div class="stat-card">
               <div class="stat-value" id="bid-stat-approved">0</div>
-              <div class="stat-label">Approved</div>
+              <div class="stat-label">Approved today</div>
             </div>
           </div>
 
@@ -415,6 +442,24 @@
                 <p class="calendar-hint">Click a day, then click another to set a manual range.</p>
               </div>
             </div>
+          </div>
+
+          <div class="section-block">
+            <h2 class="section-heading">Bids <span class="section-sub" id="goalhist-table-range-label"></span></h2>
+            <table class="segment-table">
+              <thead>
+                <tr>
+                  <th></th>
+                  <th>Company</th>
+                  <th>Account</th>
+                  <th>Status</th>
+                  <th>Date</th>
+                  <th>Link</th>
+                </tr>
+              </thead>
+              <tbody id="goalhist-bid-list-body"></tbody>
+            </table>
+            <p id="goalhist-bid-list-empty" class="empty-state hidden">No bids in this range.</p>
           </div>
         </div>
       </section>
@@ -859,6 +904,71 @@
           <div class="section-block">
             <h2 class="section-heading">Notification Preview</h2>
             <p class="settings-note" id="summary-preview-text" style="white-space:pre-line;"></p>
+          </div>
+        </div>
+
+        <!-- GENERAL -->
+        <div id="settings-sub-general" class="subpanel">
+          <h2 class="section-heading">General</h2>
+
+          <div class="section-block">
+            <h2 class="section-heading">Data Folder</h2>
+            <p class="settings-note">
+              All app data (tasks, bids, alarms, settings — everything) lives in this folder.
+              Point it at a synced or removable drive to use the same data across devices.
+            </p>
+            <div class="form-row">
+              <span class="field"><span>Current folder</span><span id="data-folder-path" class="system-time-hint"></span></span>
+            </div>
+            <div class="form-row">
+              <button type="button" id="data-folder-change-btn" class="secondary">Change&hellip;</button>
+              <button type="button" id="data-folder-open-btn" class="secondary">Open folder</button>
+            </div>
+            <p class="settings-note" id="data-folder-status" style="margin:0;"></p>
+          </div>
+
+          <div class="section-block">
+            <h2 class="section-heading">Backup</h2>
+            <p class="settings-note">Export everything to a file you choose, or restore from a previous export.</p>
+            <div class="form-row">
+              <button type="button" id="data-export-btn" class="secondary">Export data&hellip;</button>
+              <button type="button" id="data-import-btn" class="secondary">Import data&hellip;</button>
+            </div>
+            <p class="settings-note" id="data-backup-status" style="margin:0;"></p>
+          </div>
+
+          <div class="section-block">
+            <h2 class="section-heading">Startup</h2>
+            <label class="checkbox-field">
+              <input type="checkbox" id="launch-on-startup-toggle" />
+              <span>Launch Midas when I log in (starts in the background)</span>
+            </label>
+          </div>
+
+          <div class="section-block">
+            <h2 class="section-heading">Shortcuts <span class="section-sub">work even when Midas isn't focused</span></h2>
+            <p class="settings-note">Click a field, then press the key combo you want. Leave blank to disable.</p>
+            <div class="form-row">
+              <label class="field">
+                <span>Show time summary popup</span>
+                <input type="text" class="shortcut-input" id="shortcut-trayPopup" data-key="trayPopup" readonly placeholder="Click to set" />
+              </label>
+              <label class="field">
+                <span>Show main window</span>
+                <input type="text" class="shortcut-input" id="shortcut-showWindow" data-key="showWindow" readonly placeholder="Click to set" />
+              </label>
+            </div>
+            <div class="form-row">
+              <label class="field">
+                <span>Start/Stop tracking</span>
+                <input type="text" class="shortcut-input" id="shortcut-toggleTracking" data-key="toggleTracking" readonly placeholder="Click to set" />
+              </label>
+              <label class="field">
+                <span>Dismiss ringing alarm</span>
+                <input type="text" class="shortcut-input" id="shortcut-dismissAlarm" data-key="dismissAlarm" readonly placeholder="Click to set" />
+              </label>
+            </div>
+            <p class="settings-note" id="shortcuts-status" style="margin:0;"></p>
           </div>
         </div>
       </section>

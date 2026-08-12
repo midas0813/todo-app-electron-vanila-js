@@ -321,6 +321,36 @@ in `~/.claude`) so progress isn't lost even if session history elsewhere is gone
   everything through 2026-08-10 00:40 UTC. ~7-8 hours of real tracking data
   between that point and the corruption is permanently lost — full details and
   the lesson learned are in "Round 11" below.
+- **2026-08-10 (round 12)**: User asked why the tray icon opens the main window
+  instead of the time-summary popup (diagnosed as a GNOME/AppIndicator Linux
+  limitation, not a code bug — no code changed), added a Save button + "Saved
+  at HH:MM:SS" confirmation to Settings → Time Setting, and reported the line
+  charts dipping below the zero baseline with no negative data (fixed by
+  replacing Catmull-Rom smoothing with monotone cubic/Fritsch–Carlson
+  interpolation, which can't overshoot past a segment's real endpoints) — see
+  "Round 12" below.
+- **2026-08-11/12 (round 13)**: User reported all data gone after restarting
+  their PC. Found two compounding bugs: `saveData()` wrote non-atomically
+  (crash-safe window during frequent saves) and `loadData()` silently returned
+  empty defaults on any read/parse failure with no recovery attempt. Fixed with
+  atomic tmp-file+rename writes, a rolling `data.json.bak`, and quarantining
+  (never deleting) any unreadable file — see "Round 13" below. Later in the
+  same conversation, the user pasted a real production log showing exactly this
+  quarantine logic firing on their machine (confirmed working as intended, not
+  a new bug) on a genuinely empty 0-byte file — likely a corruption left over
+  from before the fix was deployed.
+- **2026-08-12 (round 14)**: User requested, in one large batch: the Performance
+  tab (Achievement) reworked to three percentages (Overall/Daily/Additional)
+  matching Today's Tasks, an Additional Tasks history table, downloadable
+  history, performance recorded once-per-day instead of re-derived live every
+  render, the Bid tab scoped to today only with Bid Log becoming the
+  full-history view (with its own filtered table), a user-defined data storage
+  folder, launch-on-startup, and global keyboard shortcuts (asked for my own
+  opinion on which ones beyond the one they specified). Asked for the combined
+  plan restated once more, then said "now go" — implemented and verified all
+  of it directly, testing against a disposable scratch data folder (via the new
+  custom-folder feature itself) rather than the real live `data.json`, per the
+  Round 11 lesson — see "Round 14" below.
 
 ## Round 4 (2026-08-10): Timer presets, Task Setting, Daily Summary report, percentage task type
 
@@ -966,3 +996,127 @@ portable.nsi` directly) extracts the app fresh into a randomized temp folder per
 launch and deletes it on exit — by design and independent of `data.json`'s storage
 location (`app.getPath('userData')`, i.e. the stable `%APPDATA%\Roaming\Midas` on
 Windows), but worth ruling out if the issue recurs after this fix.
+
+## Round 14 (2026-08-12): weighted Performance tab + history, today-scoped Bids, user-defined data folder, startup launch, global shortcuts
+
+Large multi-part request, all implemented and verified. User asked to see the plan
+restated combining everything first (no code that turn), then said "now go."
+
+**Performance tab (Achievement) reworked to match Today's Tasks' own model.**
+`computeTodayTotalPercent()` was hardcoded to "today" — extracted into a
+day-parameterized `computeDayTotalPercent(dateKey)` (today is now just
+`computeDayTotalPercent(dayKey(new Date()))`), alongside a new
+`additionalTasksDueOn(dateKey)` generalizing the old today-only
+`additionalTasksDueToday()`. The tab's two old cards (`Daily task achievement
+(averaged)` as a %, `Additional tasks completed` as a raw **count**) are now three
+percentage cards — **Today's overall performance / Daily tasks / Additional
+tasks** — matching Today's Tasks' exact labels (`achv-overall-label` swaps to plain
+"Overall performance" when the selected range isn't a single today, since "Today's"
+reads oddly over "This Month"). The per-task history table at the bottom used to
+only report daily tasks; a second **Additional Tasks** table was added alongside it
+(`computeAdditionalTaskReport`/`renderAdditionalTaskReport`) — additional tasks are
+due once rather than daily-recurring, so it shows Due date + Result instead of
+Days-tracked/Rate. A **Download history** button (`achv-download-btn`) exports the
+selected range as CSV via a new `data:saveTextFile` native-dialog IPC (same pattern
+as Export/Import below), building the CSV from the same per-day source the cards use
+so what's downloaded always matches what's on screen.
+
+**Performance is now recorded once per day instead of re-derived live every
+render — this was the actual point of the "record, don't recompute" ask.**
+Previously every day in a selected range was *derived on the fly* from current
+`state.dailyTasks`/`state.bids` on every single render — meaning deleting or editing
+a task silently rewrote what past days appeared to show. New `state
+.performanceHistory[dateKey]` (day-rollover check added to the existing 30s
+reminder loop via `recordPerformanceHistoryIfNeeded()`) snapshots each day's
+overall/daily/additional percentages **the first time a later day is noticed** —
+catching up on any days missed while the app was closed, but only ever touching
+days strictly before today (today isn't over, so it's never recorded). A new
+`dayTotalPercentForReport(dateKey)` reads the snapshot when one exists, falling
+back to a live computation only for today or for any day from before this system
+existed (no explicit backfill needed — the lazy fallback handles old history
+naturally). `computeAchievement()`/`computeAchievementDailyPoints()` (and the chart,
+which now plots the combined `overall` percent instead of daily-only) were rewired
+onto this lookup.
+- Verified directly: `recordPerformanceHistoryIfNeeded()` correctly recorded
+  exactly the days strictly between an artificially-old "last checked" date and
+  today (not today itself); then deleted a daily task that contributed to an
+  already-recorded day and confirmed the **historical snapshot was byte-for-byte
+  unchanged** while a live lookup for today correctly reflected the deletion —
+  confirming the core immutability guarantee actually holds.
+
+**Bids tab scoped to today only; Bid Log is now the "view everything" tab.**
+`sortedFilteredBids()` and `renderBidStats()` (the two KPI cards, relabeled
+"today") now filter to `b.date === todayKey` first, before the existing
+account/status filters — full history moved entirely to Bid Log. Bid Log's
+History block (chart + range-tabs/calendar + View-by, previously graph-only since
+Round 5's un-merge) gained a **Bids** table underneath
+(`filteredBidsForGoalHist()`/`renderGoalHistBidTable()`) driven by the exact same
+`goalHistRangeFrom/To` + View-by (Overall/Account/Platform) state as the chart
+above it, so they can never disagree — read-only (no edit/delete/approve — those
+stay on the Bid tab).
+
+**User-defined data folder** (supersedes plain export/import as the main answer to
+"everything's on the C drive"). A new `config.json` — always at the fixed OS
+`userData` path, since it has to be find-able before we know where anything else
+is — holds a `dataDir` pointer; `resolveDataDir()` returns that folder if set and
+still exists, else falls back to the OS default. `dataFilePath()`/`dataBackupPath()`
+now resolve through it. Settings gained a new **General** subtab (bottom of the
+Settings group): current folder path + "Change…" (native folder-picker IPC
+`data:pickFolder`, which copies the existing `data.json`/`.bak` into the new
+location first so switching is never destructive, then requires a restart —
+`data:restartApp` calls `app.relaunch()`) + "Open folder". Also in that same
+section: **Export/Import** (`data:export`/`data:import`, native Save/Open dialogs;
+import goes through the exact same atomic `saveData()` as everything else, so an
+interrupted import is exactly as crash-safe as a normal save, and the existing
+`data.json.bak` rollover covers "undo a bad import" without a separate pre-import
+backup step) — kept alongside the folder feature since a one-off snapshot is still
+useful even with a synced folder in place.
+
+**Launch on startup** — one checkbox, `app.setLoginItemSettings({ openAtLogin,
+openAsHidden: true, args: enabled ? ['--hidden'] : [] })`. `createWindow()` checks
+`process.argv.includes('--hidden')` and passes `show: false` so a startup launch
+doesn't pop the window, consistent with the app's tray-first design (macOS honors
+`openAsHidden` directly; the `--hidden` arg covers Windows/Linux). **Verified this
+does NOT actually persist in this Linux dev sandbox** — no error, no exception, but
+no `~/.config/autostart/*.desktop` file ever gets created either. This matches a
+well-documented Electron/Linux limitation: `setLoginItemSettings` on Linux
+generally only works for a properly packaged app (AppImage/deb with a real desktop
+entry), not for `electron .` running unpackaged from source — which is how this
+sandbox (and possibly the user, if also running via `npm start` rather than the
+packaged portable `.exe`) runs it. Needs confirming on the user's real setup;
+flagged rather than silently assumed working.
+
+**Global shortcuts** (`globalShortcut`, work even when Midas isn't focused).
+`registerShortcuts(shortcuts)` in `main.js` unregisters everything and re-registers
+from `state.settings.shortcuts` (defaults: tray popup `Alt+T`, show window `Alt+M`,
+toggle tracking `Alt+S`, dismiss ringing alarm `Alt+D`, all with
+`CommandOrControl`), called once at boot and again on any Settings change via a new
+`shortcuts:update` IPC (returns which accelerators failed to register, e.g. already
+claimed by another app, surfaced in the UI rather than pretending it worked).
+Two of the four actions (toggle tracking, dismiss alarm) are renderer-owned state,
+so they're forwarded as `shortcut:toggleTracking`/`shortcut:dismissAlarm` push
+events rather than handled in the main process directly. Settings UI: click a
+`.shortcut-input` field, press the combo, `keyEventToAccelerator()` converts the
+captured `KeyboardEvent` into an Electron accelerator string live (Backspace/Delete
+clears/disables a slot). Verified the full pipeline for real — captured a
+keydown, confirmed `state.settings.shortcuts.toggleTracking` updated, persisted,
+and round-tripped through `updateShortcuts()` to a real `globalShortcut.register()`
+success in the main process. (The Playwright driver's synthetic `.click()` doesn't
+reliably move focus into a `readonly` input under xvfb — worked around by
+dispatching a real `KeyboardEvent` directly at the element once focus was
+confirmed via `document.activeElement`; this is a test-harness quirk, not an app
+bug, since a real mouse click focuses a readonly input normally.)
+
+Verified end-to-end via the Electron/Playwright driver — but *not* against the
+live real `data.json`, learning directly from Round 11's incident: instead, the
+brand-new custom-data-folder feature was used to point a fresh launch at a
+scratch directory in the sandbox (via a throwaway `config.json`), so every test
+this round — including ones that mutate/delete data — ran against disposable data
+with zero risk to the real file. Confirmed real `data.json` untouched afterward
+(`activityLog` had grown from the user's own continued real usage in the
+meantime, from 85 to 121 entries — further confirving no interference). Dialog-
+dependent paths (Export/Import/Change-folder — native OS dialogs Playwright can't
+drive) were verified separately via an isolated Node script replicating the exact
+validation/merge logic (valid import, rejects arrays/garbage-JSON/null, export/
+reimport round-trips cleanly) — all passed. Zero console/page errors across the
+whole session.
