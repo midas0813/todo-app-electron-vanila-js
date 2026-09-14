@@ -1253,3 +1253,57 @@ ran `ringNotification('Ring test', 'Body here')` end to end: overlay shown with 
 right label, `dismissRinging()` cleared it. `grep -n "Notification" main.js` now
 matches only the explanatory comment. Zero console/page errors. Test pointer removed
 and real data confirmed intact afterward (121/84/26/2/3/2).
+
+## Round 17 (2026-09-14): repeating Untracked gaps traced to a second app instance
+
+User reported that Untracked entries were "continuously being recorded at regular
+intervals" — the Round 11 symptom apparently back, despite the chaining fix.
+
+**The chaining logic was not the problem.** Read it again first
+(`isContinuingTrackingSession`/`chainedStartMs`/`recordActivitySample`), then
+measured it: launched a single instance against a disposable scratch data folder
+with a 5-second tracking interval and let it run ~11 minutes. Result: **one
+contiguous entry, zero non-contiguous joins**. Round 11's invariant holds — a
+same-state sample extends `last.end` unconditionally, a state change starts at the
+previous `end`, so a single running instance cannot produce a gap.
+
+**The real cause: nothing stopped a second instance from running.** `main.js` never
+called `app.requestSingleInstanceLock()`. This was reproduced by accident first —
+an earlier driver session's app survived a `tmux kill-session`, a second launch
+came up alongside it, and the log immediately showed the exact reported shape: two
+same-state entries separated by a 21-second hole. Then reproduced deliberately as a
+control: with the lock removed, two full Electron instances coexist
+(`ps` confirmed both), and within 15 seconds the second instance's save had
+**wiped the first instance's samples entirely** — the log went back to a single
+entry starting at the second instance's own `trackingStartMs`.
+
+The mechanism: each instance holds its own in-memory `state` and its own
+`trackingStartMs`, and `persist()` writes the **whole file** on every tick. Neither
+instance ever sees the other's samples, so they take turns overwriting each other —
+whichever ticks last wins and the other's recent samples are gone. On the Dashboard
+that reads as Untracked stretches reappearing over and over at roughly the tracking
+interval, even though tracking never stopped. This app makes double-launching easy
+to do by accident: the window hides to the tray on close (so it looks closed),
+and Round 14 added launch-on-startup (so one copy is already running at login).
+
+**Fix:** `app.requestSingleInstanceLock()` at the top of `main.js`. A second launch
+quits immediately and its `second-instance` event calls `showMainWindow()` on the
+running copy — which is what someone re-launching a tray app wants anyway. The
+`whenReady` handler early-returns when the lock wasn't obtained, so a losing process
+never creates a window, a tray, or (the point) a second tracking loop.
+
+Verified: with the fix, a second launch exits in 0.7s and the original survives;
+without it (control, fix stashed) both instances coexist. Also checked the one
+thing this could plausibly break — Round 14's `data:restartApp`
+(`app.relaunch()` + `app.quit()`, used after changing the data folder) — with a
+standalone Electron probe running the identical sequence: the **relaunched process
+acquired the lock successfully** (`gotLock=true`), because `relaunch()` only starts
+the new process after the current one exits and releases it. Test pointer removed
+and real data confirmed intact afterward (121/84/26/2/3/2).
+
+Caveat recorded honestly: the multi-instance mechanism is confirmed to produce
+exactly the reported symptom, but it has not been confirmed to be what is happening
+on the user's own Windows machine — they should check Task Manager for more than one
+`Midas.exe`. One case this fix deliberately does not cover: the Round 14 custom data
+folder pointed at the same synced/shared folder from **two different machines**,
+which is the same clobbering pattern across a boundary no per-machine lock can see.

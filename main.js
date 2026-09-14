@@ -4,6 +4,27 @@ const fs = require('fs');
 
 app.setName('Midas');
 
+/* Only ever one Midas per machine. This app hides to the tray on window close
+   and (optionally) launches at login, so it is genuinely easy to end up
+   double-launching one that is already running — and a second instance is not
+   harmless here. Each instance runs its own tracking loop over its own
+   in-memory copy of the data and writes the WHOLE file back on every tick, so
+   two of them take turns clobbering each other's activityLog: whichever ticks
+   last wins, and the samples the other one recorded in between are gone. On the
+   Dashboard that shows up as Untracked gaps appearing over and over at roughly
+   the tracking interval, even though tracking never actually stopped.
+   Handing the launch over to the running instance (and focusing it, which is
+   what someone re-launching an app is asking for anyway) removes the whole
+   failure mode. */
+const gotSingleInstanceLock = app.requestSingleInstanceLock();
+if (!gotSingleInstanceLock) {
+  app.quit();
+} else {
+  app.on('second-instance', () => {
+    showMainWindow();
+  });
+}
+
 const iconPath = path.join(__dirname, 'build', 'icon.ico');
 
 let activeWin;
@@ -391,6 +412,10 @@ function registerShortcuts(shortcuts) {
 }
 
 app.whenReady().then(() => {
+  // Lost the race for the lock — the already-running instance is taking over
+  // this launch, so this process must not create a window, a tray, or (most
+  // importantly) a second tracking loop before it goes away.
+  if (!gotSingleInstanceLock) return;
   migrateUserDataIfNeeded();
   createWindow();
   createTray();
