@@ -502,8 +502,6 @@
             </div>
             <div class="timeline-ruler" id="timeline-ruler"></div>
           </div>
-          <div class="chart-tooltip hidden" id="chart-tooltip"></div>
-
           <div class="segments-layout">
             <div class="section-block">
               <h2 class="section-heading" id="segment-table-heading">Computer Usage</h2>
@@ -974,6 +972,11 @@
       </section>
     </main>
   </div>
+
+  <!-- Chart hover readout. Lives at body level, not inside a panel: it is used by
+       charts on several tabs, and inside a subpanel it would be display:none
+       (and therefore unmeasurable/invisible) on every tab but that one. -->
+  <div class="chart-tooltip hidden" id="chart-tooltip"></div>
 
   <!-- Ringing alarm overlay: shown full-screen, blocks interaction, until dismissed -->
   <div id="alarm-ringing-overlay" class="alarm-ringing-overlay hidden">

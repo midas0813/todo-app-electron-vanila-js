@@ -1120,3 +1120,106 @@ drive) were verified separately via an isolated Node script replicating the exac
 validation/merge logic (valid import, rejects arrays/garbage-JSON/null, export/
 reimport round-trips cleanly) — all passed. Zero console/page errors across the
 whole session.
+
+## Round 15 (2026-09-14): performance analysis + fix, on-demand rendering, interactive charts
+
+User reported the app "is so heavy now", asked for analysis first, and asked for a
+better time-track graph ("I want an active graph, if cursor go somewhere it have to
+show info"). They also floated rewriting in React/Next.
+
+**Analysis first — "heavy" was never a data-volume problem.** The real `data.json`
+is 37 KB (121 activityLog / 84 appLog / 26 bids). The cost was algorithmic:
+`renderTimeline()` called `dominantKeyInRange()` **once per segment**, and each of
+those scanned the *entire* appLog re-parsing every ISO date with `new Date()` —
+O(segments x wholeLog), with both sides growing forever. Benchmarked: fine today
+(1.9 ms), 863 ms at 2k appLog entries, 5.8 s at 8k, and a synthetic 30-day
+continuous-tracking log (43k entries) **timed out a 120-second benchmark**. Made
+worse by two multipliers: `renderDashboardDay()` ran on every activity tick, and
+the wheel-zoom handler redrew the whole timeline on *every* wheel event
+(unthrottled, dozens per gesture).
+
+**On React/Next (asked, answered, not done):** Next.js is a server/SSR framework and
+is the wrong tool for a local Electron app. React was judged viable but would fix
+*none* of the measured problems — every number above is algorithm cost, not
+rendering-strategy cost, and React would re-run the same work plus reconciliation.
+Recommended (and the user agreed by scoping to the fixes) that the algorithmic work
+come first, framework migration being a separate maintainability decision. The
+JSON-file DB is untouched either way: it's all behind IPC in `main.js`.
+
+**Rendering is now on-demand** (user's explicit instruction: "The time tracking
+function is working correctly as it is. The update can take place when I expand the
+dashboard or the tray"). Tracking/sampling logic was left completely untouched.
+Removed the per-tick `renderDashboardDay()`/`renderWorkRecordChart()` from
+`activityTick()` and the equivalent block from `setupLockStateListener()`. The
+Dashboard already redrew on tab-open (`renderTimeSection()`), and the tray popup
+already refreshed on open (`tray-popup:refresh`), so those paths needed nothing.
+Added `setupDashboardRefreshOnShow()` — a `window` focus listener that redraws only
+when the Dashboard is the visible panel, so restoring the window from the tray
+isn't showing a stale day. The status pill still updates every tick (cheap).
+
+**The display path was made fast** (all of it display-only — no tracking code
+touched):
+- `prepareLogEntries()` parses/clips/sorts once per render; `dominantKeyInRange()`
+  replaced by `dominantKeysForSegments()`, a single forward sweep with a
+  monotonically advancing cursor over both sorted arrays.
+- `preparedLog()` caches the fully parsed+sorted log in a `WeakMap`, keyed on
+  length + last entry's `end` (tracking only appends or extends the last entry), and
+  `prepareLogEntries()` **binary-searches** the visible range instead of walking all
+  N entries four times per dashboard open.
+- `entryTimes()` memoizes per-entry ISO parsing, re-parsing only when the raw
+  strings actually change.
+- `fmtTime()` and the segment table now reuse module-level `Intl.DateTimeFormat`
+  instances — `toLocaleTimeString` builds a fresh formatter per call and was running
+  ~5,300 times per render. **This was the single biggest remaining win** (timeline
+  192 ms -> 6.8 ms).
+- `segmentsForDate()` no longer spreads every log entry into two throwaway objects
+  before filtering; `renderBreakdownPanel()` no longer re-parses the whole log.
+- Wheel-zoom now coalesces into one redraw per frame via
+  `scheduleTimelineRedraw()` (`requestAnimationFrame`).
+
+Measured in the real app against a 43,200-entry dataset (30 days of continuous
+1-minute tracking), Dashboard open: **42 s -> 62 ms**. Isolated benchmark of the
+timeline row alone showed 505x (7 days) and 621x (30 days), with 90-day and 365-day
+cases going from "never finished in 120 s" to 229 ms / 657 ms. Output verified
+**byte-identical** to the old implementation on real data (segments and dominant
+apps both compared equal).
+
+**Charts rebuilt to be interactive** (`buildLineChartSvg` -> `renderLineChart` +
+`setupLineChartHover`, shared by Work Record, Achievement and Bid History):
+- Dropped `preserveAspectRatio="none"` on a fixed 640-wide viewBox, which had been
+  stretching the whole drawing horizontally — points rendered as ellipses and labels
+  as smeared type. The viewBox is now sized to the container's real pixel width.
+- Added a Y axis: gridlines plus value labels, so a peak is readable without
+  hovering. Gridline **step** (not max) is rounded to a nice number, in the unit the
+  labels are displayed in (`axisUnit`, 60 for the seconds-valued time chart) —
+  rounding the max gave ladders like 6m/13m/19m/25m.
+- Replaced the old SVG `<title>` on 3px circles (a ~1s native OS tooltip you could
+  only trigger by hitting that exact pixel) with a hover crosshair that snaps to the
+  nearest point anywhere along the chart, a highlighted focus dot, and the styled
+  app tooltip. One document-level listener drives all charts via a `chartRegistry`,
+  moving existing SVG nodes rather than re-rendering.
+
+Two real bugs found and fixed during verification, both caught by testing rather
+than assumed working:
+1. `#chart-tooltip` lived *inside* the Dashboard subpanel, so on every other tab it
+   was inside a `display:none` parent — measured 0x0 and invisible. Moved to body
+   level alongside the ringing overlay.
+2. The new document-level hover handler ran *after* the timeline's own handler
+   (which is bound to `.timeline-rows`) and hid the tooltip it had just set,
+   breaking the Dashboard timeline tooltip. Fixed with explicit
+   `tooltip.dataset.owner` tagging so each subsystem only hides what it set.
+
+Verified via the Electron/Playwright driver against a **disposable scratch data
+folder** (pointed there with a throwaway `config.json`, per the Round 11 incident) —
+never the live `data.json`. Confirmed Breakdown math (33.4/33.3/33.3% on `i%3`
+synthetic data), both tooltip systems, all three charts registering, axis labels
+(`0m/10m/20m/30m/40m` and `0%/25%/50%/75%/100%`). Zero console/page errors. Test
+pointer removed and real data confirmed intact afterward (121/84/26/2/3/2).
+
+Still open from the analysis, not done this round: no automated tests at all
+(`renderer/app.js` is 3,963 lines / 236 functions in one global-scope file); the
+`refreshTasksExtras()` cascade still re-runs three full range-walks (~295 ms with a
+year of bids) on every checkbox click; `persist()` writes the whole file on every
+tick; `renderWorldClocks` runs every second regardless of visible tab; `feather-icons`
+is an unused dependency; legacy dead keys (`counters`, `sessions`, `activeTracking`,
+`pomodoro*`) still ride along in the saved file.

@@ -489,11 +489,6 @@ function setupLockStateListener() {
       setStatusPill('locked');
       recordActivitySample('locked');
       persist();
-      const activePanel = document.querySelector('.tab-panel.active');
-      if (activePanel && activePanel.id === 'tab-alarm') {
-        renderDashboardDay();
-        renderWorkRecordChart();
-      }
     } else {
       activityTick();
     }
@@ -599,6 +594,11 @@ function pruneAppLog() {
   state.appLog = state.appLog.filter((e) => new Date(e.end).getTime() >= cutoff);
 }
 
+/* Samples and records only — it deliberately does NOT redraw the Dashboard.
+   Drawing is on-demand: the Dashboard redraws when you actually open it (tab
+   switch, date nav, zoom) or when the window is brought back up, and the tray
+   popup redraws when it opens. Tracking keeps running in the background either
+   way, so nothing is lost by not painting a view nobody is looking at. */
 async function activityTick() {
   const thresholdSeconds = Math.max(1, Math.round(activityIntervalMs / 1000));
   const result = await window.api.getIdleState(thresholdSeconds);
@@ -617,15 +617,14 @@ async function activityTick() {
   }
 
   persist();
-
-  const activePanel = document.querySelector('.tab-panel.active');
-  if (activePanel && activePanel.id === 'tab-alarm') {
-    renderDashboardDay();
-    renderWorkRecordChart();
-  }
 }
 
 /* ---------- dashboard day view (Computer Usage + Applications, ManicTime-style) ---------- */
+
+/* Reused Intl formatter. Constructing one per call (what toLocaleTimeString
+   does internally) is expensive, and the segment table formats two timestamps
+   for every row — thousands of formatter constructions per render. */
+const CLOCK_FORMAT = new Intl.DateTimeFormat([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
 
 const STATUS_COLORS = { active: '#57c785', idle: '#ffb84d', locked: '#a389f4' };
 function statusColor(s) {
@@ -648,8 +647,13 @@ function capitalize(s) {
   return s ? s.charAt(0).toUpperCase() + s.slice(1) : s;
 }
 
+/* Reused formatter — this runs twice per timeline slot, so building a fresh
+   Intl.DateTimeFormat each call (which toLocaleTimeString does) dominated the
+   timeline render once a day had many segments. */
+const HHMM_FORMAT = new Intl.DateTimeFormat([], { hour: '2-digit', minute: '2-digit' });
+
 function fmtTime(ms) {
-  return new Date(ms).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  return HHMM_FORMAT.format(ms);
 }
 
 function formatHMS(totalSeconds) {
@@ -714,6 +718,22 @@ function getTimelineViewRange(dateKey) {
   return { viewStart: Math.max(dayStart, viewStart), viewEnd: Math.min(dayEnd, viewEnd) };
 }
 
+let timelineRedrawHandle = null;
+
+/* Coalesces rapid redraw requests (wheel-zoom) into one paint per animation
+   frame — without this, a single scroll gesture ran the full timeline redraw
+   dozens of times. */
+function scheduleTimelineRedraw() {
+  if (timelineRedrawHandle !== null) return;
+  timelineRedrawHandle = requestAnimationFrame(() => {
+    timelineRedrawHandle = null;
+    renderTimeline();
+    renderAppTimeline();
+    renderNowMarker();
+    renderTimelineRuler();
+  });
+}
+
 function setupTimelineZoom() {
   const wrap = document.querySelector('.timeline-wrap');
   wrap.addEventListener(
@@ -722,10 +742,9 @@ function setupTimelineZoom() {
       e.preventDefault();
       const zoomFactor = e.deltaY < 0 ? 0.75 : 1 / 0.75;
       timelineZoomMs = Math.min(DAY_MS, Math.max(MIN_ZOOM_MS, timelineZoomMs * zoomFactor));
-      renderTimeline();
-      renderAppTimeline();
-      renderNowMarker();
-      renderTimelineRuler();
+      // One scroll gesture fires dozens of wheel events; coalesce them into a
+      // single redraw per frame instead of redrawing the timeline for each.
+      scheduleTimelineRedraw();
     },
     { passive: false }
   );
@@ -749,21 +768,115 @@ function renderTimelineRuler() {
   document.getElementById('timeline-ruler').innerHTML = labels.join('');
 }
 
-function dominantKeyInRange(log, keyField, rangeStart, rangeEnd) {
-  const durByKey = {};
-  for (const entry of log) {
-    const es = new Date(entry.start).getTime();
-    const ee = new Date(entry.end).getTime();
-    const overlapStart = Math.max(es, rangeStart);
-    const overlapEnd = Math.min(ee, rangeEnd);
-    if (overlapEnd > overlapStart) {
-      durByKey[entry[keyField]] = (durByKey[entry[keyField]] || 0) + (overlapEnd - overlapStart);
-    }
+/* Parses a log into numeric, range-clipped, start-sorted entries — once per
+   render instead of once per segment. The ISO-string Date parsing used to sit
+   in the inner loop of a per-segment scan, which made drawing one day cost
+   O(segments x wholeLog) and grow without bound as the logs filled up. */
+/* Parsing an ISO string is the single most expensive thing in a dashboard
+   render once the logs are large, and log entries are immutable once written —
+   the only one that ever changes is the most recent, whose `end` gets extended
+   each tick. So cache per entry object and re-parse only when the raw strings
+   actually differ. WeakMap so dropped entries (pruning, reload) are collected. */
+const entryTimeCache = new WeakMap();
+
+function entryTimes(entry) {
+  const cached = entryTimeCache.get(entry);
+  if (cached && cached.rawStart === entry.start && cached.rawEnd === entry.end) return cached;
+  const fresh = {
+    rawStart: entry.start,
+    rawEnd: entry.end,
+    start: new Date(entry.start).getTime(),
+    end: new Date(entry.end).getTime(),
+  };
+  entryTimeCache.set(entry, fresh);
+  return fresh;
+}
+
+/* The whole log, parsed and sorted once, cached until it actually changes.
+   Tracking only ever appends a new entry or extends the last one's `end`, so
+   length + last end is a sufficient cache key. Without this, drawing one day
+   still walked all N entries (four times per dashboard open) just to find the
+   handful that are actually on screen. */
+const preparedLogCache = new WeakMap();
+
+function preparedLog(log, keyField) {
+  const last = log.length ? log[log.length - 1] : null;
+  const cached = preparedLogCache.get(log);
+  if (cached && cached.keyField === keyField && cached.length === log.length && cached.lastEnd === (last && last.end)) {
+    return cached.entries;
   }
-  const entries = Object.entries(durByKey);
-  if (!entries.length) return null;
-  entries.sort((a, b) => b[1] - a[1]);
-  return entries[0][0];
+
+  const entries = log.map((entry) => {
+    const { start, end } = entryTimes(entry);
+    return { start, end, key: entry[keyField] };
+  });
+  entries.sort((a, b) => a.start - b.start);
+
+  preparedLogCache.set(log, { keyField, length: log.length, lastEnd: last && last.end, entries });
+  return entries;
+}
+
+/* Entries overlapping [rangeStart, rangeEnd), found by binary search over the
+   cached sorted array instead of scanning the whole log. Returned objects are
+   shared with the cache — callers must treat them as read-only. */
+function prepareLogEntries(log, keyField, rangeStart, rangeEnd) {
+  const all = preparedLog(log, keyField);
+
+  let lo = 0;
+  let hi = all.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (all[mid].start < rangeStart) lo = mid + 1;
+    else hi = mid;
+  }
+  // Back up over any earlier entry that still runs into the range (entries are
+  // normally contiguous, so this steps back once at most).
+  while (lo > 0 && all[lo - 1].end > rangeStart) lo--;
+
+  const prepared = [];
+  for (let i = lo; i < all.length; i++) {
+    const entry = all[i];
+    if (entry.start >= rangeEnd) break;
+    if (entry.end > rangeStart) prepared.push(entry);
+  }
+  return prepared;
+}
+
+/* Dominant key per segment for a whole row at once. Segments and entries are
+   both sorted by start and segments tile the range, so a single forward sweep
+   with a monotonically advancing cursor replaces re-scanning the entire log
+   for every segment. Returns an array parallel to `segments`. */
+function dominantKeysForSegments(segments, entries) {
+  const result = new Array(segments.length).fill(null);
+  let firstCandidate = 0;
+
+  for (let i = 0; i < segments.length; i++) {
+    const seg = segments[i];
+    while (firstCandidate < entries.length && entries[firstCandidate].end <= seg.start) firstCandidate++;
+
+    const durByKey = new Map();
+    for (let j = firstCandidate; j < entries.length; j++) {
+      const entry = entries[j];
+      if (entry.start >= seg.end) break; // sorted by start, so nothing later can overlap
+      const overlapStart = entry.start > seg.start ? entry.start : seg.start;
+      const overlapEnd = entry.end < seg.end ? entry.end : seg.end;
+      if (overlapEnd > overlapStart) {
+        durByKey.set(entry.key, (durByKey.get(entry.key) || 0) + (overlapEnd - overlapStart));
+      }
+    }
+
+    let bestKey = null;
+    let bestDuration = 0;
+    for (const [key, duration] of durByKey) {
+      if (duration > bestDuration) {
+        bestDuration = duration;
+        bestKey = key;
+      }
+    }
+    result[i] = bestKey;
+  }
+
+  return result;
 }
 
 function slotTooltip(rangeStart, rangeEnd, status, appName) {
@@ -774,17 +887,17 @@ function slotTooltip(rangeStart, rangeEnd, status, appName) {
 }
 
 /* Build the real, variable-width segments covering [viewStart, viewEnd) — no fixed
-   buckets. Gaps with no log entry (or time not yet reached) become "untracked" (key=null). */
-function buildViewSegments(log, keyField, viewStart, viewEnd) {
+   buckets. Gaps with no log entry (or time not yet reached) become "untracked" (key=null).
+   Takes entries already prepared by prepareLogEntries(), so the same parse is
+   shared with the dominant-key sweep rather than repeated. */
+function buildViewSegments(preparedEntries, viewStart, viewEnd) {
   const now = Date.now();
   const visibleEnd = Math.min(viewEnd, now);
   if (visibleEnd <= viewStart) return [{ start: viewStart, end: viewEnd, key: null }];
 
-  const entries = log
-    .map((e) => ({ start: new Date(e.start).getTime(), end: new Date(e.end).getTime(), key: e[keyField] }))
+  const entries = preparedEntries
     .filter((e) => e.end > viewStart && e.start < visibleEnd)
-    .map((e) => ({ start: Math.max(e.start, viewStart), end: Math.min(e.end, visibleEnd), key: e.key }))
-    .sort((a, b) => a.start - b.start);
+    .map((e) => ({ start: Math.max(e.start, viewStart), end: Math.min(e.end, visibleEnd), key: e.key }));
 
   const segments = [];
   let cursor = viewStart;
@@ -802,13 +915,17 @@ function buildViewSegments(log, keyField, viewStart, viewEnd) {
 function renderTimeline() {
   const { viewStart, viewEnd } = getTimelineViewRange(dashboardDateKey);
   const rangeMs = viewEnd - viewStart;
-  const segments = buildViewSegments(state.activityLog, 'state', viewStart, viewEnd);
+  const activityEntries = prepareLogEntries(state.activityLog, 'state', viewStart, viewEnd);
+  const appEntries = prepareLogEntries(state.appLog, 'appName', viewStart, viewEnd);
+
+  const segments = buildViewSegments(activityEntries, viewStart, viewEnd);
+  const appNames = dominantKeysForSegments(segments, appEntries);
 
   const html = segments
-    .map((seg) => {
+    .map((seg, i) => {
       const widthPct = ((seg.end - seg.start) / rangeMs) * 100;
       const cls = seg.key || '';
-      const appName = seg.key ? dominantKeyInRange(state.appLog, 'appName', seg.start, seg.end) : null;
+      const appName = seg.key ? appNames[i] : null;
       const tooltip = escapeHtml(slotTooltip(seg.start, seg.end, seg.key, appName));
       return `<div class="timeline-slot ${cls}" style="width:${widthPct}%" data-tooltip="${tooltip}"></div>`;
     })
@@ -819,13 +936,17 @@ function renderTimeline() {
 function renderAppTimeline() {
   const { viewStart, viewEnd } = getTimelineViewRange(dashboardDateKey);
   const rangeMs = viewEnd - viewStart;
-  const segments = buildViewSegments(state.appLog, 'appName', viewStart, viewEnd);
+  const appEntries = prepareLogEntries(state.appLog, 'appName', viewStart, viewEnd);
+  const activityEntries = prepareLogEntries(state.activityLog, 'state', viewStart, viewEnd);
+
+  const segments = buildViewSegments(appEntries, viewStart, viewEnd);
+  const statuses = dominantKeysForSegments(segments, activityEntries);
 
   const html = segments
-    .map((seg) => {
+    .map((seg, i) => {
       const widthPct = ((seg.end - seg.start) / rangeMs) * 100;
       const style = seg.key ? `background:${colorForApp(seg.key)};` : '';
-      const status = seg.key ? dominantKeyInRange(state.activityLog, 'state', seg.start, seg.end) : null;
+      const status = seg.key ? statuses[i] : null;
       const tooltip = escapeHtml(slotTooltip(seg.start, seg.end, status, seg.key));
       return `<div class="timeline-slot" style="${style}width:${widthPct}%" data-tooltip="${tooltip}"></div>`;
     })
@@ -857,6 +978,7 @@ function setupChartTooltip() {
       return;
     }
     tooltip.textContent = slot.dataset.tooltip;
+    tooltip.dataset.owner = 'timeline';
     tooltip.classList.remove('hidden');
 
     const margin = 14;
@@ -872,14 +994,17 @@ function setupChartTooltip() {
   rows.addEventListener('mouseleave', () => tooltip.classList.add('hidden'));
 }
 
-function segmentsForDate(log, dateKey) {
+/* Same clip-to-day as before, but via prepareLogEntries so the whole log isn't
+   first copied into 2 intermediate objects per entry (object spread over every
+   entry, twice) just to throw almost all of them away in the filter. */
+function segmentsForDate(log, keyField, dateKey) {
   const dayStart = new Date(`${dateKey}T00:00:00`).getTime();
   const dayEnd = dayStart + 24 * 3600 * 1000;
-  return log
-    .map((e) => ({ ...e, es: new Date(e.start).getTime(), ee: new Date(e.end).getTime() }))
-    .filter((e) => e.ee > dayStart && e.es < dayEnd)
-    .map((e) => ({ ...e, es: Math.max(e.es, dayStart), ee: Math.min(e.ee, dayEnd) }))
-    .sort((a, b) => a.es - b.es);
+  return prepareLogEntries(log, keyField, dayStart, dayEnd).map((e) => ({
+    start: Math.max(e.start, dayStart),
+    end: Math.min(e.end, dayEnd),
+    key: e.key,
+  }));
 }
 
 let segmentView = 'status';
@@ -903,8 +1028,9 @@ function updateTimelineRowSelection() {
 }
 
 function renderSegmentTable() {
-  const log = segmentView === 'status' ? state.activityLog : state.appLog;
-  const segs = segmentsForDate(log, dashboardDateKey);
+  const isStatus = segmentView === 'status';
+  const log = isStatus ? state.activityLog : state.appLog;
+  const segs = segmentsForDate(log, isStatus ? 'state' : 'appName', dashboardDateKey);
   const tbody = document.getElementById('segment-table-body');
   const empty = document.getElementById('segment-table-empty');
 
@@ -917,15 +1043,15 @@ function renderSegmentTable() {
 
   tbody.innerHTML = segs
     .map((seg) => {
-      const title = segmentView === 'status' ? capitalize(seg.state) : seg.appName;
-      const color = segmentView === 'status' ? statusColor(seg.state) : colorForApp(seg.appName);
-      const durationSec = (seg.ee - seg.es) / 1000;
+      const title = isStatus ? capitalize(seg.key) : seg.key;
+      const color = isStatus ? statusColor(seg.key) : colorForApp(seg.key);
+      const durationSec = (seg.end - seg.start) / 1000;
       return `
         <tr>
           <td><span class="seg-color-dot" style="background:${color}"></span></td>
           <td>${escapeHtml(title)}</td>
-          <td>${new Date(seg.es).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</td>
-          <td>${new Date(seg.ee).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</td>
+          <td>${CLOCK_FORMAT.format(seg.start)}</td>
+          <td>${CLOCK_FORMAT.format(seg.end)}</td>
           <td>${formatHMS(durationSec)}</td>
         </tr>`;
     })
@@ -936,22 +1062,24 @@ function renderBreakdownPanel() {
   const dayStart = new Date(`${dashboardDateKey}T00:00:00`).getTime();
   const dayEnd = dayStart + 24 * 3600 * 1000;
 
+  // Parse+clip once via prepareLogEntries rather than re-parsing every entry in
+  // the whole log (two Date constructions each) on every dashboard render.
   const totals = {};
   if (segmentView === 'status') {
     ['active', 'idle', 'locked'].forEach((s) => {
       totals[s] = 0;
     });
-    state.activityLog.forEach((e) => {
-      const es = Math.max(new Date(e.start).getTime(), dayStart);
-      const ee = Math.min(new Date(e.end).getTime(), dayEnd);
-      if (ee > es && e.state in totals) totals[e.state] += (ee - es) / 1000;
-    });
+    for (const e of prepareLogEntries(state.activityLog, 'state', dayStart, dayEnd)) {
+      const es = Math.max(e.start, dayStart);
+      const ee = Math.min(e.end, dayEnd);
+      if (ee > es && e.key in totals) totals[e.key] += (ee - es) / 1000;
+    }
   } else {
-    state.appLog.forEach((e) => {
-      const es = Math.max(new Date(e.start).getTime(), dayStart);
-      const ee = Math.min(new Date(e.end).getTime(), dayEnd);
-      if (ee > es) totals[e.appName] = (totals[e.appName] || 0) + (ee - es) / 1000;
-    });
+    for (const e of prepareLogEntries(state.appLog, 'appName', dayStart, dayEnd)) {
+      const es = Math.max(e.start, dayStart);
+      const ee = Math.min(e.end, dayEnd);
+      if (ee > es) totals[e.key] = (totals[e.key] || 0) + (ee - es) / 1000;
+    }
   }
 
   const entries = Object.entries(totals)
@@ -1088,57 +1216,173 @@ function buildSmoothLinePath(coords) {
   return d;
 }
 
-function buildLineChartSvg(points, formatValue = formatMinutesShort, maxHint = 60) {
-  const width = 640;
-  const height = 180;
-  const padLeft = 8;
-  const padRight = 8;
-  const padTop = 12;
-  const padBottom = 22;
+/* Rounds an axis maximum up to a readable number (10, 25, 50, 100, 250...) so
+   gridline labels land on values a human would actually write down. */
+function niceAxisMax(value) {
+  if (!(value > 0)) return 1;
+  const magnitude = Math.pow(10, Math.floor(Math.log10(value)));
+  const normalized = value / magnitude;
+  const step = normalized <= 1 ? 1 : normalized <= 2 ? 2 : normalized <= 2.5 ? 2.5 : normalized <= 5 ? 5 : 10;
+  return step * magnitude;
+}
+
+/* Live chart state, keyed by container id, so hovering can find the nearest
+   point without re-rendering anything. */
+const chartRegistry = new Map();
+
+const CHART_GRID_LINES = 4;
+
+/* Draws into the container and registers it for hover. The viewBox is sized to
+   the container's real pixel width so 1 unit == 1 px — the old chart used a
+   fixed 640-wide viewBox with preserveAspectRatio="none", which stretched the
+   whole drawing horizontally and turned the points into ellipses and the text
+   into smeared type. */
+function renderLineChart(containerId, points, formatValue = formatMinutesShort, maxHint = 60, axisUnit = 1) {
+  const container = document.getElementById(containerId);
+  if (!container) return;
+
+  if (points.length === 0) {
+    chartRegistry.delete(containerId);
+    container.innerHTML = '<p class="empty-state">No data yet.</p>';
+    return;
+  }
+
+  const width = Math.max(320, Math.round(container.clientWidth) || 640);
+  const height = 200;
+  const padLeft = 48;
+  const padRight = 12;
+  const padTop = 14;
+  const padBottom = 26;
   const plotWidth = width - padLeft - padRight;
   const plotHeight = height - padTop - padBottom;
 
-  const maxVal = Math.max(maxHint, ...points.map((p) => p.value));
+  // Round the gridline STEP (in the unit the labels are shown in — minutes for
+  // the time chart, whose raw values are seconds), then derive the max from it.
+  // Rounding the max instead gives a nice ceiling that still divides into an
+  // awkward ladder like 6m / 13m / 19m / 25m.
+  const rawMax = Math.max(maxHint, ...points.map((p) => p.value));
+  const step = niceAxisMax(rawMax / CHART_GRID_LINES / axisUnit) * axisUnit;
+  const maxVal = step * CHART_GRID_LINES;
   const stepX = points.length > 1 ? plotWidth / (points.length - 1) : 0;
+  const floorY = padTop + plotHeight;
 
   const coords = points.map((p, i) => ({
     x: padLeft + stepX * i,
-    y: padTop + plotHeight - (p.value / maxVal) * plotHeight,
+    y: floorY - (p.value / maxVal) * plotHeight,
     p,
   }));
 
-  if (coords.length === 0) return '<p class="empty-state">No data yet.</p>';
+  // Horizontal gridlines + value labels, so a peak can be read off the axis
+  // instead of only by hovering it.
+  let grid = '';
+  for (let i = 0; i <= CHART_GRID_LINES; i++) {
+    const value = (maxVal / CHART_GRID_LINES) * i;
+    const y = floorY - (plotHeight / CHART_GRID_LINES) * i;
+    grid += `<line x1="${padLeft}" y1="${y.toFixed(1)}" x2="${width - padRight}" y2="${y.toFixed(1)}" class="chart-gridline"></line>`;
+    grid += `<text x="${padLeft - 8}" y="${(y + 3).toFixed(1)}" class="chart-axis-label" text-anchor="end">${escapeHtml(
+      String(formatValue(Math.round(value * 100) / 100))
+    )}</text>`;
+  }
 
   const pathD = buildSmoothLinePath(coords);
-  const floorY = padTop + plotHeight;
   const areaD = `${pathD} L ${coords[coords.length - 1].x.toFixed(1)} ${floorY} L ${coords[0].x.toFixed(1)} ${floorY} Z`;
 
-  const circles = coords
-    .map(
-      (c) =>
-        `<circle cx="${c.x.toFixed(1)}" cy="${c.y.toFixed(1)}" r="3" class="line-point"><title>${escapeHtml(
-          c.p.label
-        )}: ${formatValue(c.p.value)}</title></circle>`
-    )
-    .join('');
+  const dots =
+    coords.length <= 60
+      ? coords.map((c) => `<circle cx="${c.x.toFixed(1)}" cy="${c.y.toFixed(1)}" r="2.5" class="line-point"></circle>`).join('')
+      : '';
 
-  const showEvery = Math.max(1, Math.ceil(points.length / 10));
+  const showEvery = Math.max(1, Math.ceil(points.length / 8));
   const labels = coords
     .map((c, i) => {
       if (i % showEvery !== 0 && i !== points.length - 1) return '';
-      return `<text x="${c.x.toFixed(1)}" y="${height - 4}" class="line-chart-label" text-anchor="middle">${escapeHtml(
+      return `<text x="${c.x.toFixed(1)}" y="${height - 6}" class="chart-axis-label" text-anchor="middle">${escapeHtml(
         c.p.label
       )}</text>`;
     })
     .join('');
 
-  return `
-    <svg viewBox="0 0 ${width} ${height}" class="line-chart-svg" preserveAspectRatio="none">
+  container.innerHTML = `
+    <svg viewBox="0 0 ${width} ${height}" class="line-chart-svg" width="${width}" height="${height}">
+      ${grid}
       <path d="${areaD}" class="line-chart-area"></path>
       <path d="${pathD}" class="line-chart-line"></path>
-      ${circles}
+      ${dots}
       ${labels}
+      <line class="chart-crosshair hidden" y1="${padTop}" y2="${floorY}"></line>
+      <circle class="chart-focus-dot hidden" r="4.5"></circle>
     </svg>`;
+
+  chartRegistry.set(containerId, { coords, formatValue, padLeft, stepX, width });
+}
+
+/* One document-level listener drives every chart: find the hovered chart, snap
+   to the nearest point by x, move the crosshair and focus dot, and show the
+   value. Previously the only readout was an SVG <title> on a 3px circle, which
+   meant a slow native tooltip you could only trigger by hitting that exact
+   pixel — effectively no readout at all. */
+function setupLineChartHover() {
+  const tooltip = document.getElementById('chart-tooltip');
+
+  const hide = (container) => {
+    if (!container) return;
+    container.querySelectorAll('.chart-crosshair, .chart-focus-dot').forEach((el) => el.classList.add('hidden'));
+  };
+
+  document.addEventListener('mousemove', (e) => {
+    const container = e.target.closest ? e.target.closest('.line-chart') : null;
+    const chart = container && chartRegistry.get(container.id);
+
+    if (!chart) {
+      // The Dashboard timeline shares this tooltip element and runs its own
+      // handler; only hide what this one put there, or we'd clobber it (this
+      // listener is on document, so it fires after the timeline's).
+      if (tooltip.dataset.owner === 'line-chart') {
+        tooltip.classList.add('hidden');
+        delete tooltip.dataset.owner;
+      }
+      chartRegistry.forEach((_, id) => hide(document.getElementById(id)));
+      return;
+    }
+
+    const rect = container.getBoundingClientRect();
+    const scale = rect.width ? chart.width / rect.width : 1;
+    const localX = (e.clientX - rect.left) * scale;
+
+    const index =
+      chart.stepX > 0
+        ? Math.min(chart.coords.length - 1, Math.max(0, Math.round((localX - chart.padLeft) / chart.stepX)))
+        : 0;
+    const point = chart.coords[index];
+
+    const crosshair = container.querySelector('.chart-crosshair');
+    const dot = container.querySelector('.chart-focus-dot');
+    if (crosshair) {
+      crosshair.setAttribute('x1', point.x.toFixed(1));
+      crosshair.setAttribute('x2', point.x.toFixed(1));
+      crosshair.classList.remove('hidden');
+    }
+    if (dot) {
+      dot.setAttribute('cx', point.x.toFixed(1));
+      dot.setAttribute('cy', point.y.toFixed(1));
+      dot.classList.remove('hidden');
+    }
+
+    tooltip.innerHTML = `<strong>${escapeHtml(point.p.label)}</strong><br>${escapeHtml(
+      String(chart.formatValue(point.p.value))
+    )}`;
+    tooltip.dataset.owner = 'line-chart';
+    tooltip.classList.remove('hidden');
+
+    const margin = 14;
+    let left = e.clientX + margin;
+    let top = e.clientY + margin;
+    const tipRect = tooltip.getBoundingClientRect();
+    if (left + tipRect.width > window.innerWidth) left = e.clientX - tipRect.width - margin;
+    if (top + tipRect.height > window.innerHeight) top = e.clientY - tipRect.height - margin;
+    tooltip.style.left = `${left}px`;
+    tooltip.style.top = `${top}px`;
+  });
 }
 
 let logRangeFrom = dayKey(new Date());
@@ -1321,7 +1565,7 @@ function setupCalendar() {
 
 function renderWorkRecordChart() {
   const points = getWorkRecordPoints();
-  document.getElementById('time-line-chart').innerHTML = buildLineChartSvg(points);
+  renderLineChart('time-line-chart', points, formatMinutesShort, 60, 60);
 }
 
 function onSettingsChanged() {
@@ -1584,6 +1828,18 @@ function renderTimeSection() {
   renderDashboardDay();
   logCalendar.render();
   renderWorkRecordChart();
+}
+
+/* The other half of on-demand drawing: bringing the window back up from the
+   tray is the same intent as opening the Dashboard, so refresh then too —
+   otherwise a window restored after hours in the tray would show a stale day.
+   Only redraws when the Dashboard is the visible panel; any other tab costs
+   nothing. */
+function setupDashboardRefreshOnShow() {
+  window.addEventListener('focus', () => {
+    const activePanel = document.querySelector('.tab-panel.active');
+    if (activePanel && activePanel.id === 'tab-alarm') renderTimeSection();
+  });
 }
 
 /* ---------- reminders & deadline notifications ---------- */
@@ -2425,7 +2681,7 @@ function renderAchievementView() {
     result.additionalPercent === null ? '—' : `${Math.round(result.additionalPercent)}%`;
 
   const points = computeAchievementDailyPoints(achvRangeFrom, achvRangeTo);
-  document.getElementById('achv-line-chart').innerHTML = buildLineChartSvg(points, (v) => `${v}%`, 100);
+  renderLineChart('achv-line-chart', points, (v) => `${v}%`, 100);
 
   renderGoalReport();
   renderAdditionalTaskReport();
@@ -3130,10 +3386,10 @@ function renderGoalHistory() {
   let points;
   if (viewType === 'overall') {
     points = computeBidGoalDailyPoints(goalHistRangeFrom, goalHistRangeTo);
-    document.getElementById('goalhist-line-chart').innerHTML = buildLineChartSvg(points, (v) => `${v}%`, 100);
+    renderLineChart('goalhist-line-chart', points, (v) => `${v}%`, 100);
   } else if (viewRef) {
     points = computeBidCountDailyPoints(goalHistRangeFrom, goalHistRangeTo, viewType, viewRef);
-    document.getElementById('goalhist-line-chart').innerHTML = buildLineChartSvg(points, (v) => `${v}`, 5);
+    renderLineChart('goalhist-line-chart', points, (v) => `${v}`, 5);
   } else {
     document.getElementById('goalhist-line-chart').innerHTML = '<p class="empty-state">Select an account or platform.</p>';
   }
@@ -3889,6 +4145,7 @@ async function init() {
   setupTimelineRowSelection();
   setupTimelineZoom();
   setupChartTooltip();
+  setupLineChartHover();
   setupLogRangeTabs();
   setupCalendar();
   setupTimeSettingsForm();
@@ -3902,6 +4159,7 @@ async function init() {
   setupGlobalShortcutListeners();
   setupTrackingToggle();
   setupLockStateListener();
+  setupDashboardRefreshOnShow();
   setupDailyTaskForm();
   setupDailyTaskListEvents();
   setupTodayTaskListEvents();
