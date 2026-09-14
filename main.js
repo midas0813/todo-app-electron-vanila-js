@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, Notification, powerMonitor, shell, Tray, Menu, nativeImage, screen, dialog, globalShortcut } = require('electron');
+const { app, BrowserWindow, ipcMain, powerMonitor, shell, Tray, Menu, nativeImage, screen, dialog, globalShortcut } = require('electron');
 const path = require('path');
 const fs = require('fs');
 
@@ -283,7 +283,7 @@ function toggleTrayPopup() {
   trayPopup.focus();
 }
 
-/* ---------- custom in-app toast, bottom-right, alongside the native OS notification ---------- */
+/* ---------- custom in-app toast, bottom-right — the app's only notification ---------- */
 
 let toastWindow = null;
 let toastHideTimeout = null;
@@ -426,10 +426,10 @@ ipcMain.handle('window:show', () => {
   return true;
 });
 
+/* Notifications are the app's own bottom-right toast only. The native OS
+   notification that used to fire alongside it was removed deliberately — it
+   duplicated every toast in the Windows notification centre. */
 ipcMain.handle('notify:show', (event, { title, body }) => {
-  if (Notification.isSupported()) {
-    new Notification({ title, body }).show();
-  }
   showAppToast(title, body);
   return true;
 });

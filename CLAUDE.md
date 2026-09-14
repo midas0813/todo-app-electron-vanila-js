@@ -1223,3 +1223,33 @@ year of bids) on every checkbox click; `persist()` writes the whole file on ever
 tick; `renderWorldClocks` runs every second regardless of visible tab; `feather-icons`
 is an unused dependency; legacy dead keys (`counters`, `sessions`, `activeTracking`,
 `pomodoro*`) still ride along in the saved file.
+
+## Round 16 (2026-09-14): native OS notifications removed, toast is the only notification
+
+User asked to disable Windows system notifications and keep only the app's own
+bottom-right toast. Since Round 9, `notify:show` fired **both** a native Electron
+`Notification` *and* `showAppToast()` — on Windows that means every single
+notification also piled up in the OS notification centre, duplicating what the
+toast already showed.
+
+`ipcMain.handle('notify:show', ...)` in `main.js` now calls only
+`showAppToast(title, body)`; the `Notification.isSupported()` / `new Notification(...)
+.show()` block is gone, and `Notification` was dropped from the `require('electron')`
+destructuring since nothing else in the file used it. Nothing else changed — every
+notification source still routes through the same `window.api.notify(...)` IPC, and
+the ring-until-dismissed overlay + looping sound from Round 10 are renderer-side and
+untouched, so alarms/timers/goal deadlines/daily summaries all behave exactly as
+before minus the duplicate OS toast. Three stale comments (two in `main.js`, one in
+`renderer/app.js`) that still described a native notification were corrected.
+
+Verified via the Electron/Playwright driver against a **disposable scratch data
+folder** (throwaway `config.json` pointer, per the Round 11 incident): before the
+call `BrowserWindow.getAllWindows()` held only `index.html`; after
+`window.api.notify('Test title','Test body')` a `toast.html` window existed,
+`isVisible() === true`, `isFocusable() === false`, bounds `320x96` at `(944, 912)`
+— exactly the bottom-right 16px margin on the 1280x1024 xvfb screen — with body
+text "Test title / Test body". Confirmed the toast still auto-hides after 6s. Also
+ran `ringNotification('Ring test', 'Body here')` end to end: overlay shown with the
+right label, `dismissRinging()` cleared it. `grep -n "Notification" main.js` now
+matches only the explanatory comment. Zero console/page errors. Test pointer removed
+and real data confirmed intact afterward (121/84/26/2/3/2).

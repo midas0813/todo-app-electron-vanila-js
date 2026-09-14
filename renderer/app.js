@@ -3673,7 +3673,7 @@ function fireRingBurst() {
     const repeatCount = Math.max(1, state.settings.alarmRepeatCount || 3);
     if (ringBurstsFired >= repeatCount) {
       // Gave the full repeat cycle a chance without being dismissed — go quiet
-      // for this item (overlay/toast/native notification already happened) and
+      // for this item (the overlay and toast already happened) and
       // move on to the next queued item, if any.
       ringingItems.shift();
       ringBurstsFired = 0;
@@ -3702,7 +3702,7 @@ function startAlarmRinging(alarmId) {
 }
 
 /* Shared by every non-alarm notification source — same ring-until-dismissed
-   behavior as a real alarm, plus the existing native OS notification + toast. */
+   behavior as a real alarm, plus the app's bottom-right toast. */
 function ringNotification(title, body) {
   window.api.notify(title, body);
   pushRingItem(title, body, null);
