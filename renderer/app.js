@@ -594,11 +594,12 @@ function pruneAppLog() {
   state.appLog = state.appLog.filter((e) => new Date(e.end).getTime() >= cutoff);
 }
 
-/* Samples and records only — it deliberately does NOT redraw the Dashboard.
-   Drawing is on-demand: the Dashboard redraws when you actually open it (tab
-   switch, date nav, zoom) or when the window is brought back up, and the tray
-   popup redraws when it opens. Tracking keeps running in the background either
-   way, so nothing is lost by not painting a view nobody is looking at. */
+/* Samples and records every tick. Drawing is on-demand: the Dashboard is only
+   redrawn here while someone can actually see it (see isDashboardOnScreen), and
+   otherwise when it is opened (tab switch, date nav, zoom) or the window is
+   brought back up; the tray popup redraws when it opens. A hidden window or
+   another tab costs nothing, but an open Dashboard keeps moving — it must not
+   sit frozen at whatever it drew when it was opened. */
 async function activityTick() {
   const thresholdSeconds = Math.max(1, Math.round(activityIntervalMs / 1000));
   const result = await window.api.getIdleState(thresholdSeconds);
@@ -617,6 +618,16 @@ async function activityTick() {
   }
 
   persist();
+  if (isDashboardOnScreen()) renderDashboardDay();
+}
+
+/* The Dashboard subtab is the active view AND the window is actually showing
+   (a window hidden to the tray reports visibilityState 'hidden'). */
+function isDashboardOnScreen() {
+  if (document.visibilityState !== 'visible') return false;
+  const tab = document.getElementById('tab-alarm');
+  const sub = document.getElementById('alarm-sub-dashboard');
+  return !!(tab && sub && tab.classList.contains('active') && sub.classList.contains('active'));
 }
 
 /* ---------- dashboard day view (Computer Usage + Applications, ManicTime-style) ---------- */

@@ -1307,3 +1307,39 @@ on the user's own Windows machine — they should check Task Manager for more th
 `Midas.exe`. One case this fix deliberately does not cover: the Round 14 custom data
 folder pointed at the same synced/shared folder from **two different machines**,
 which is the same clobbering pattern across a boundary no per-machine lock can see.
+
+## Round 18 (2026-09-17): open Dashboard froze — Round 15 over-removed the live redraw
+
+User reported "app tracking is not working now." Checked the recorder first, on this
+machine's real X11 display (so `active-win` returns real window names) against a
+scratch data folder: activity and Applications samples both recorded correctly and
+contiguously (`active-win` 8.2.1 unchanged and loadable). So nothing had stopped
+*recording*.
+
+**What was actually broken was the display.** Round 15 removed the per-tick
+`renderDashboardDay()` from `activityTick()` entirely, so an **open** Dashboard drew
+once when opened and then never moved: measured the recorded `end` reaching 09:48
+while the on-screen timeline stayed at 09:47 and kept that way until a tab switch or
+window focus. From the user's side that looks exactly like tracking has stopped. The
+user's Round 15 instruction ("the update can take place when I expand the dashboard")
+meant *draw only while it's being looked at* — not *never redraw while it's open*.
+
+**Fix (`renderer/app.js`):** `activityTick()` now ends with
+`if (isDashboardOnScreen()) renderDashboardDay();`. `isDashboardOnScreen()` is true
+only when `#tab-alarm` and `#alarm-sub-dashboard` are both active **and**
+`document.visibilityState === 'visible'` (a window hidden to the tray reports
+`hidden`). Recording code untouched; other tabs and a hidden window still cost
+nothing. Per-tick cost is now small anyway (Round 15 measured 62 ms at 43k entries).
+
+Verified in the running app at a 5 s interval: with the Dashboard open, 16 redraws
+in 75 s and the drawn segment ended at 09:54 = the recorded end (9:54:09); on
+Today's Tasks, 0 redraws over 22 s while recording continued. The hidden-window case
+did **not** verify under the Playwright driver (page stayed `visible` — Playwright
+forces page visibility), so it was checked with a plain Electron probe instead: show →
+`visible`, `hide()` → `hidden`, `show()` → `visible`. Test pointer removed, real data
+confirmed intact (121/84/26/2/3/2/2).
+
+Not ruled out, since it can't be exercised from here: a Windows-only problem with the
+Round 17 single-instance lock (e.g. a stuck background Midas holding the lock, so a
+new launch just hands off to it). If the user's symptom is "nothing records at all",
+check Task Manager for a leftover `Midas.exe` next.
