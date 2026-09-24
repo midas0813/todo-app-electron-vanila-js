@@ -1398,3 +1398,24 @@ Note for future sessions: the scratchpad Playwright driver is gone between sessi
 and `playwright-core` is **not** a project dependency — it lives under
 `~/.npm/_npx/*/node_modules`. ESM ignores `NODE_PATH`, so symlink that folder as
 `node_modules` next to `driver.mjs` rather than setting env vars.
+
+## Round 20 (2026-09-24): Settings sub-tab reorder
+
+User asked to move **Time Setting** below **Daily Summary**. Sidebar order in the
+Settings group is now: **Daily Task Setting → Bid Setting → Daily Summary → Time
+Setting → General** (markup-only move of the `.nav-subitem` button in
+`renderer/index.html`; nothing in JS addresses these by position).
+
+The subpanel `<div>`s were deliberately left in their original source order — only
+one is ever `.active`, so DOM order has no effect on what renders, and moving ~90
+lines of panel markup would have been risk with no user-visible payoff. Same reason
+the pre-seeded `active` class was left on Time Setting / `settings-sub-interval`:
+the pair only has to agree with each other, not with sidebar position, and every
+real entry into a Settings sub-tab goes through a click on its own nav item.
+
+Verified in the running app against a disposable scratch data folder: clicked all
+five sub-tabs in the new order and each opened its own panel —
+`Daily Task Setting->settings-sub-tasksetting`, `Bid Setting->settings-sub-bidsetting`,
+`Daily Summary->settings-sub-summary`, `Time Setting->settings-sub-interval`,
+`General->settings-sub-general`. Test pointer removed, real data intact
+(121/84/26/2/3/2/2).
