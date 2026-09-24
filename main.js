@@ -82,7 +82,8 @@ const defaultData = {
     performanceHistoryLastCheckedDate: null,
     dailySummaryNotifiedDate: null,
     additionalTaskWeight: 'middle',
-    trayClickShowsTimePopup: true,
+    showTimeDashboardTab: true,
+    showTimeLogTab: true,
     sidebarPinned: true,
     alarmDurationMin: 5,
     alarmIntervalMin: 1,
@@ -364,12 +365,21 @@ function showAppToast(title, body) {
   }
 }
 
+/* Bring the window up on a particular tab — the tray's shortcuts into the app.
+   The renderer owns which tab is showing, so it's told where to go rather than
+   the main process trying to drive the UI itself. */
+function showMainWindowAt(tab, subtab) {
+  showMainWindow();
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('nav:goTo', { tab, subtab });
+}
+
 function createTray() {
   tray = new Tray(nativeImage.createFromPath(iconPath));
   tray.setToolTip('Midas');
   tray.setContextMenu(
     Menu.buildFromTemplate([
-      { label: 'Show Midas', click: showMainWindow },
+      { label: 'Open Midas', click: showMainWindow },
+      { label: 'Bid', click: () => showMainWindowAt('bids', 'bid') },
       { type: 'separator' },
       {
         label: 'Quit',
@@ -380,11 +390,13 @@ function createTray() {
       },
     ])
   );
-  tray.on('click', () => {
-    const showPopup = loadData().settings.trayClickShowsTimePopup !== false;
-    if (showPopup) toggleTrayPopup();
-    else showMainWindow();
-  });
+  /* Clicking the tray icon opens that menu — it no longer opens the time-summary
+     popup. That popup is now only reachable through its global shortcut
+     (settings.shortcuts.trayPopup), which is what the user asked for. On Windows a
+     left click doesn't raise the context menu on its own, so raise it explicitly;
+     on Linux the desktop already opens the menu for any click and this is a no-op
+     in practice. */
+  tray.on('click', () => tray.popUpContextMenu());
 }
 
 /* ---------- global keyboard shortcuts (work even when Midas isn't focused) ---------- */

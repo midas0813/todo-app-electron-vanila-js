@@ -1343,3 +1343,55 @@ Not ruled out, since it can't be exercised from here: a Windows-only problem wit
 Round 17 single-instance lock (e.g. a stuck background Midas holding the lock, so a
 new launch just hands off to it). If the user's symptom is "nothing records at all",
 check Task Manager for a leftover `Midas.exe` next.
+
+## Round 19 (2026-09-24): hideable time-tracking tabs, tray menu replaces the tray-click popup
+
+Three related asks, all implemented and verified.
+
+**Dashboard and Log can now be hidden from the sidebar.** Two new settings
+(`showTimeDashboardTab` / `showTimeLogTab`, both default `true`) with checkboxes in
+Settings → Time Setting under a new "Time tracking tabs" heading.
+`applyTimeTabVisibility()` toggles the global `.hidden` class on the two
+`.nav-subitem[data-tab="alarm"]` buttons; it is called from `renderTimerSettings()`
+(so the sidebar matches the saved setting on boot) and again on every checkbox
+change. Sidebar-only — the panels still exist and tracking keeps recording either
+way. One edge case handled deliberately: hiding the subtab you are *currently on*
+would otherwise leave a blank view, so `applyTimeTabVisibility()` detects that and
+clicks the first still-visible Alarm & Clock subtab instead.
+
+**Tray click no longer opens the time-summary popup.** It now opens a menu:
+**Open Midas / Bid / Quit** (`createTray()` in `main.js`). `tray.on('click')` calls
+`tray.popUpContextMenu()` — needed because on Windows a left click does not raise
+the context menu by itself; on Linux the desktop already opens the menu for any
+click (Round 12), so it is a no-op there. The popup is now reachable **only** via
+its global shortcut (`settings.shortcuts.trayPopup`, default `Ctrl+Alt+T`) —
+`registerShortcuts()` was not touched.
+
+**"Bid" needed a main→renderer hop**, since the renderer owns which tab is showing:
+new `showMainWindowAt(tab, subtab)` shows the window and sends `nav:goTo`, bridged
+by `preload.js`'s `onNavigate` and handled by `setupTrayNavigation()` in `app.js`,
+which clicks the matching `.nav-subitem`.
+
+**Removed as now-dead:** `settings.trayClickShowsTimePopup` (default, the Settings
+checkbox, `setupTrayPopupToggle()`, and the line in `renderTimerSettings()` that
+reflected it) — tray-click behavior is no longer a choice. The Tray section in
+Settings now just explains what the menu does and that the popup is on a hotkey. A
+stale `trayClickShowsTimePopup` key left in an existing save is simply ignored.
+
+Verified via the Electron/Playwright driver against a **disposable scratch data
+folder** (throwaway `config.json` pointer, per the Round 11 incident): sending
+`nav:goTo {bids,bid}` from the main process landed the renderer on
+`tab-bids`/`bids-sub-bid` with the right nav item active (the exact call the Bid menu
+item makes); unchecking both boxes left the Alarm & Clock group as
+`alarms/timer/stopwatch/worldclock` with the other four untouched, and persisted
+`false`; activating Dashboard and then hiding it moved the active view to Log
+(`alarm-sub-log`) rather than blanking; the setting survived a full restart
+(`dashBox:false, logBox:true`, Dashboard absent from the sidebar); `BrowserWindow
+.getAllWindows()` held only `index.html` (no tray popup) and
+`globalShortcut.isRegistered('CommandOrControl+Alt+T')` returned `true`. Test pointer
+removed, real data confirmed intact (121/84/26/2/3/2/2).
+
+Note for future sessions: the scratchpad Playwright driver is gone between sessions
+and `playwright-core` is **not** a project dependency — it lives under
+`~/.npm/_npx/*/node_modules`. ESM ignores `NODE_PATH`, so symlink that folder as
+`node_modules` next to `driver.mjs` rather than setting env vars.

@@ -11,6 +11,7 @@ contextBridge.exposeInMainWorld('api', {
   onToast: (callback) => ipcRenderer.on('toast:show', (event, data) => callback(data)),
   dismissToast: () => ipcRenderer.invoke('toast:dismiss'),
   onTrayPopupRefresh: (callback) => ipcRenderer.on('tray-popup:refresh', () => callback()),
+  onNavigate: (callback) => ipcRenderer.on('nav:goTo', (event, target) => callback(target)),
   onLockStateChanged: (callback) => ipcRenderer.on('system:lockStateChanged', (event, locked) => callback(locked)),
 
   getDataFolder: () => ipcRenderer.invoke('data:getFolder'),

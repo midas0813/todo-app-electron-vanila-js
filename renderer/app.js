@@ -1598,10 +1598,50 @@ function setupTimeSettingsForm() {
   });
 }
 
-function setupTrayPopupToggle() {
-  document.getElementById('tray-popup-toggle').addEventListener('change', (e) => {
-    state.settings.trayClickShowsTimePopup = e.target.checked;
+/* Dashboard and Log can be hidden from the sidebar (Settings > Time Setting) by
+   anyone who doesn't use the time-tracking views. This is sidebar-only: the panels
+   still exist and tracking keeps recording either way. */
+const HIDEABLE_TIME_TABS = { dashboard: 'showTimeDashboardTab', log: 'showTimeLogTab' };
+
+function setupTimeTabToggles() {
+  document.getElementById('time-dashboard-tab-toggle').addEventListener('change', (e) => {
+    state.settings.showTimeDashboardTab = e.target.checked;
     persist();
+    applyTimeTabVisibility();
+  });
+  document.getElementById('time-log-tab-toggle').addEventListener('change', (e) => {
+    state.settings.showTimeLogTab = e.target.checked;
+    persist();
+    applyTimeTabVisibility();
+  });
+}
+
+function applyTimeTabVisibility() {
+  let activeGotHidden = false;
+
+  Object.entries(HIDEABLE_TIME_TABS).forEach(([subtab, settingKey]) => {
+    const btn = document.querySelector(`.nav-subitem[data-tab="alarm"][data-subtab="${subtab}"]`);
+    if (!btn) return;
+    const show = state.settings[settingKey] !== false;
+    btn.classList.toggle('hidden', !show);
+    if (!show && btn.classList.contains('active')) activeGotHidden = true;
+  });
+
+  // Never strand the user on the tab they just hid — fall through to the first
+  // Alarm & Clock subtab that's still visible (Alarms, at worst).
+  if (activeGotHidden) {
+    const fallback = [...document.querySelectorAll('.nav-subitem[data-tab="alarm"]')].find(
+      (b) => !b.classList.contains('hidden')
+    );
+    if (fallback) fallback.click();
+  }
+}
+
+/* The tray's "Bid" item asks the renderer to switch tabs (main.js can't do it). */
+function setupTrayNavigation() {
+  window.api.onNavigate(({ tab, subtab }) => {
+    const btn = document.querySelector(`.nav-subitem[data-tab="${tab}"][data-subtab="${subtab}"]`);
+    if (btn) btn.click();
   });
 }
 
@@ -1832,7 +1872,9 @@ function renderTimerSettings() {
   document.getElementById('setting-interval-unit').value = useSeconds ? 'sec' : 'min';
   document.getElementById('setting-interval').value = useSeconds ? sec : sec / 60;
   activityIntervalMs = sec * 1000;
-  document.getElementById('tray-popup-toggle').checked = state.settings.trayClickShowsTimePopup !== false;
+  document.getElementById('time-dashboard-tab-toggle').checked = state.settings.showTimeDashboardTab !== false;
+  document.getElementById('time-log-tab-toggle').checked = state.settings.showTimeLogTab !== false;
+  applyTimeTabVisibility();
 }
 
 function renderTimeSection() {
@@ -4160,7 +4202,8 @@ async function init() {
   setupLogRangeTabs();
   setupCalendar();
   setupTimeSettingsForm();
-  setupTrayPopupToggle();
+  setupTimeTabToggles();
+  setupTrayNavigation();
   setupAlarmSettingsForm();
   setupTimeSettingSaveButton();
   setupDataFolderControls();
