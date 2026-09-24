@@ -1349,8 +1349,11 @@ check Task Manager for a leftover `Midas.exe` next.
 Three related asks, all implemented and verified.
 
 **Dashboard and Log can now be hidden from the sidebar.** Two new settings
-(`showTimeDashboardTab` / `showTimeLogTab`, both default `true`) with checkboxes in
-Settings → Time Setting under a new "Time tracking tabs" heading.
+(`showTimeDashboardTab` / `showTimeLogTab`, both default `true`) as two checkboxes
+at the bottom of Settings → Time Setting's **Alarm** section, labelled just **D** and
+**L**. (They first shipped as their own "Time tracking tabs" section with an
+explanatory paragraph and full "Show Alarm & Clock → Dashboard" labels; the user
+asked for the heading and prose gone and the labels cut to single letters.)
 `applyTimeTabVisibility()` toggles the global `.hidden` class on the two
 `.nav-subitem[data-tab="alarm"]` buttons; it is called from `renderTimerSettings()`
 (so the sidebar matches the saved setting on boot) and again on every checkbox
