@@ -2987,6 +2987,9 @@ function setupBidForm() {
   document.getElementById('bid-cancel-edit').addEventListener('click', resetBidForm);
   document.getElementById('bid-filter-account').addEventListener('change', renderBidList);
   document.getElementById('bid-filter-status').addEventListener('change', renderBidList);
+  // 'input' rather than 'change' so the table filters as you type.
+  document.getElementById('bid-search').addEventListener('input', renderBidList);
+  document.getElementById('goalhist-bid-search').addEventListener('input', renderGoalHistBidTable);
 }
 
 function resetBidForm() {
@@ -3026,17 +3029,36 @@ function toggleBidApproved(id) {
   renderBids();
 }
 
+/* One matcher shared by both Bid tables (Bid and Bid Log) so the two searches can
+   never drift apart. Every whitespace-separated term has to match somewhere, so
+   typing more words narrows the result instead of widening it — "acme pending"
+   means both, not either. Status is searchable as the words shown in the table
+   ("approved" / "pending") rather than the underlying boolean. */
+function bidMatchesSearch(bid, rawQuery) {
+  const terms = rawQuery.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  if (terms.length === 0) return true;
+
+  const haystack = [bid.company, bid.memberName, bid.platform, bid.link, bid.date, bid.approved ? 'approved' : 'pending']
+    .filter(Boolean)
+    .join(' ')
+    .toLowerCase();
+
+  return terms.every((term) => haystack.includes(term));
+}
+
 /* The Bid tab is scoped to today only — full history lives in Bid Log instead
    (see renderGoalHistBidTable), which can show any range. */
 function sortedFilteredBids() {
   const accountFilter = document.getElementById('bid-filter-account').value;
   const statusFilter = document.getElementById('bid-filter-status').value;
+  const search = document.getElementById('bid-search').value;
   const todayKey = dayKey(new Date());
 
   let bids = state.bids.filter((b) => b.date === todayKey);
   if (accountFilter) bids = bids.filter((b) => b.accountId === accountFilter);
   if (statusFilter === 'approved') bids = bids.filter((b) => b.approved);
   else if (statusFilter === 'pending') bids = bids.filter((b) => !b.approved);
+  bids = bids.filter((b) => bidMatchesSearch(b, search));
 
   bids.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
   return bids;
@@ -3052,6 +3074,8 @@ function renderBidList() {
 
   if (bids.length === 0) {
     tbody.innerHTML = '';
+    // "No bids logged yet" would be a lie when a search or filter is what emptied it.
+    empty.textContent = todayTotal === 0 ? 'No bids logged yet.' : 'No bids match the current search or filters.';
     empty.classList.remove('hidden');
     return;
   }
@@ -3460,6 +3484,10 @@ function filteredBidsForGoalHist() {
   let bids = state.bids.filter((b) => b.date >= goalHistRangeFrom && b.date <= goalHistRangeTo);
   if (viewType === 'account' && viewRef) bids = bids.filter((b) => b.accountId === viewRef);
   else if (viewType === 'platform' && viewRef) bids = bids.filter((b) => b.platform === viewRef);
+  /* Search narrows this table only — the chart above still shows the whole range,
+     which is the point of a chart. The count next to the table says how many of
+     the range's bids matched, so the difference is never a mystery. */
+  bids = bids.filter((b) => bidMatchesSearch(b, document.getElementById('goalhist-bid-search').value));
 
   bids.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
   return bids;
@@ -3473,8 +3501,12 @@ function renderGoalHistBidTable() {
   document.getElementById('goalhist-table-range-label').textContent =
     goalHistRangeFrom === goalHistRangeTo ? formatDateLabel(goalHistRangeFrom) : `${formatDateLabel(goalHistRangeFrom)} – ${formatDateLabel(goalHistRangeTo)}`;
 
+  const rangeTotal = state.bids.filter((b) => b.date >= goalHistRangeFrom && b.date <= goalHistRangeTo).length;
+  document.getElementById('goalhist-bid-count').textContent = `${bids.length} shown / ${rangeTotal} in range`;
+
   if (bids.length === 0) {
     tbody.innerHTML = '';
+    empty.textContent = rangeTotal === 0 ? 'No bids in this range.' : 'No bids in this range match the current search.';
     empty.classList.remove('hidden');
     return;
   }

@@ -1419,3 +1419,46 @@ five sub-tabs in the new order and each opened its own panel —
 `Daily Summary->settings-sub-summary`, `Time Setting->settings-sub-interval`,
 `General->settings-sub-general`. Test pointer removed, real data intact
 (121/84/26/2/3/2/2).
+
+## Round 21 (2026-09-25): search on both Bid tables
+
+User asked for a search function in the Bid section — both the Bid tab and Bid Log.
+
+**One shared matcher, `bidMatchesSearch(bid, rawQuery)`**, used by both tables so the
+two searches can't drift apart. It matches across company, member name, platform,
+link and date, plus the status as the word the table actually shows
+(`approved`/`pending`) rather than the underlying boolean. Whitespace-separated terms
+are ANDed — `dana linkedin` narrows instead of widening, which is what people expect
+from a search box with more than one word in it.
+
+- **Bid tab** (`#bid-search`, in the existing `.filters` row): folded into
+  `sortedFilteredBids()` after the existing today-scope/account/status filters, so
+  search composes with them. The existing `N shown / M today` count already reports
+  the effect.
+- **Bid Log** (`#goalhist-bid-search`, above the Bids table): folded into
+  `filteredBidsForGoalHist()`. Search deliberately narrows **only the table** — the
+  chart above still plots the whole range, since that's the point of the chart. To
+  keep that from looking like a bug, the table gained a count
+  (`#goalhist-bid-count`, `N shown / M in range`) mirroring the Bid tab's.
+
+Both are wired on `input` (filters as you type), not `change`. `input[type="search"]`
+was added to the shared input-styling selector list in `styles.css`, which previously
+only covered text/number/date/time/url/datetime-local — without it the new boxes would
+have rendered unstyled.
+
+Both empty states now distinguish "nothing recorded" from "nothing matched" (they
+previously said only "No bids logged yet." / "No bids in this range.", which is a lie
+when a search is what emptied the table).
+
+Verified via the Electron/Playwright driver against a **disposable scratch data
+folder**, seeded with distinctive synthetic bids because the real ones are
+placeholders ("d", "sdf") that can't demonstrate a search. Bid tab: 9 today, `acme`
+→ 1, `ACME` → 1 (case-insensitive), `dana` → 2, `dana linkedin` → 1 (AND), `approved`
+→ 1, `zzz` → 0 with the no-match message. Bid Log over This Month (11 in range = 9
+today + 2 older): `acme` → 2 (both dates), `umbrella` → 1 (older bid only, proving it
+searches the range and not just today), `upwork` → 2, `romano upwork` → 1, `nomatch`
+→ 0 with its own message. Also checked row actions under an active search, since
+filtering plus event delegation is where an off-by-one would hide: with `initech`
+typed, clicking the approve checkbox flipped exactly that bid (`t3` false→true), no
+other bid changed, and the search text plus filtered view survived the re-render.
+Test pointer removed, real data intact (121/84/26/2/3/2/2).

@@ -372,6 +372,10 @@
                 <option value="approved">Approved</option>
               </select>
             </label>
+            <label class="field">
+              <span>Search</span>
+              <input type="search" id="bid-search" class="bid-search-input" placeholder="Company, account, platform, status" />
+            </label>
             <div class="filter-spacer"></div>
             <div class="task-count" id="bid-count"></div>
           </div>
@@ -446,6 +450,14 @@
 
           <div class="section-block">
             <h2 class="section-heading">Bids <span class="section-sub" id="goalhist-table-range-label"></span></h2>
+            <div class="filters">
+              <label class="field">
+                <span>Search</span>
+                <input type="search" id="goalhist-bid-search" class="bid-search-input" placeholder="Company, account, platform, status" />
+              </label>
+              <div class="filter-spacer"></div>
+              <div class="task-count" id="goalhist-bid-count"></div>
+            </div>
             <table class="segment-table">
               <thead>
                 <tr>
